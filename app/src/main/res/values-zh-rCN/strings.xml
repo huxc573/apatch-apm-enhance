@@ -108,6 +108,12 @@
     <string name="apm_move_down">下移</string>
     <string name="apm_compact">紧凑布局</string>
     <string name="apm_drag_handle">拖动排序</string>
+    <string name="apm_selected_count">已选 %1$d 项</string>
+    <string name="apm_select_all">全选</string>
+    <string name="apm_clear_selection">清空</string>
+    <string name="apm_pin_selected">置顶</string>
+    <string name="apm_unpin_selected">取消置顶</string>
+    <string name="apm_edit_done">完成</string>
     <string name="apm_sort_reset">重置排序与置顶</string>
     <string name="system_default">系统默认</string>
     <string name="settings_app_language">语言</string>

@@ -143,6 +143,20 @@ class APModuleViewModel : ViewModel() {
         APModuleUiPrefs.savePinned(pinnedIds)
     }
 
+    /** 批量置顶：编辑模式下勾选多个模块后一次性置顶。 */
+    fun pinAll(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        pinnedIds = pinnedIds + ids
+        APModuleUiPrefs.savePinned(pinnedIds)
+    }
+
+    /** 批量取消置顶。 */
+    fun unpinAll(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        pinnedIds = pinnedIds - ids
+        APModuleUiPrefs.savePinned(pinnedIds)
+    }
+
     /**
      * 在当前可见顺序上把 [id] 上移/下移 [delta] 位，并自动切到自定义排序。
      */

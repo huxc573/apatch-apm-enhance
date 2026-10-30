@@ -12,6 +12,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +44,10 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -155,6 +161,11 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
 
     var searchActive by rememberSaveable { mutableStateOf(false) }
 
+    // 编辑模式：长按任意卡片进入，底部出现批量置顶操作栏，卡片可滑动排序
+    var editMode by rememberSaveable { mutableStateOf(false) }
+    // 编辑模式下被勾选的模块，用于批量置顶
+    var checkedIds by remember { mutableStateOf(setOf<String>()) }
+
     val webUILauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { viewModel.fetchModuleList() }
@@ -185,6 +196,28 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
                         onQueryChange = viewModel::updateSearchQuery
                     )
                 }
+            }
+        }, bottomBar = {
+            if (editMode) {
+                EditModeBar(
+                    checkedCount = checkedIds.size,
+                    onPinChecked = {
+                        viewModel.pinAll(checkedIds)
+                        checkedIds = emptySet()
+                    },
+                    onUnpinChecked = {
+                        viewModel.unpinAll(checkedIds)
+                        checkedIds = emptySet()
+                    },
+                    onSelectAll = {
+                        checkedIds = viewModel.moduleList.map { it.id }.toSet()
+                    },
+                    onClearSelection = { checkedIds = emptySet() },
+                    onDone = {
+                        editMode = false
+                        checkedIds = emptySet()
+                    }
+                )
             }
         }, floatingActionButton = if (hideInstallButton) {
             { /* Empty */ }
@@ -245,6 +278,16 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
                         .padding(innerPadding)
                         .fillMaxSize(),
                     state = moduleListState,
+                    editMode = editMode,
+                    checkedIds = checkedIds,
+                    onCheckedChange = { id, isChecked ->
+                        checkedIds = if (isChecked) checkedIds + id else checkedIds - id
+                    },
+                    onEnterEditMode = { editMode = true },
+                    onExitEditMode = {
+                        editMode = false
+                        checkedIds = emptySet()
+                    },
                     onInstallModule = {
                         navigator.navigate(InstallScreenDestination(it, MODULE_TYPE.APM))
                     },
@@ -390,6 +433,75 @@ private class ApmCardDimens(val compact: Boolean) {
     val handleSize: Dp = if (compact) 20.dp else 24.dp
 }
 
+/**
+ * 编辑模式的底部操作栏：批量置顶 / 取消置顶 / 全选 / 完成。
+ * 长按进入编辑模式后出现，替代平时隐藏在图钉按钮里的操作。
+ */
+@Composable
+private fun EditModeBar(
+    checkedCount: Int,
+    onPinChecked: () -> Unit,
+    onUnpinChecked: () -> Unit,
+    onSelectAll: () -> Unit,
+    onClearSelection: () -> Unit,
+    onDone: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 3.dp
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.apm_selected_count, checkedCount),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                TextButton(onClick = if (checkedCount == 0) onSelectAll else onClearSelection) {
+                    Text(
+                        stringResource(
+                            if (checkedCount == 0) R.string.apm_select_all
+                            else R.string.apm_clear_selection
+                        )
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = onPinChecked,
+                    enabled = checkedCount > 0,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PushPin,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.apm_pin_selected))
+                }
+                OutlinedButton(
+                    onClick = onUnpinChecked,
+                    enabled = checkedCount > 0,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(stringResource(R.string.apm_unpin_selected))
+                }
+                TextButton(onClick = onDone) {
+                    Text(stringResource(R.string.apm_edit_done))
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModuleList(
@@ -397,6 +509,11 @@ private fun ModuleList(
     viewModel: APModuleViewModel,
     modifier: Modifier = Modifier,
     state: LazyListState,
+    editMode: Boolean = false,
+    checkedIds: Set<String> = emptySet(),
+    onCheckedChange: (String, Boolean) -> Unit = { _, _ -> },
+    onEnterEditMode: () -> Unit = {},
+    onExitEditMode: () -> Unit = {},
     onInstallModule: (Uri) -> Unit,
     onClickModule: (id: String, name: String, hasWebUi: Boolean) -> Unit,
     snackBarHost: SnackbarHostState,
@@ -605,7 +722,11 @@ private fun ModuleList(
                             pinned = viewModel.isPinned(module.id),
                             dimens = dimens,
                             isDragging = isDragging,
+                            isEditing = editMode,
+                            editChecked = module.id in checkedIds,
+                            onEditCheckedChange = { onCheckedChange(module.id, it) },
                             onTogglePin = { viewModel.togglePin(module.id) },
+                            onEnterEditMode = onEnterEditMode,
                             onUninstall = {
                                 scope.launch { onModuleUninstall(module) }
                             },
@@ -645,7 +766,12 @@ private fun ModuleList(
                                 }
                             },
                             onClick = {
-                                onClickModule(it.id, it.name, it.hasWebUi)
+                                // 编辑模式下点击卡片＝勾选，不再打开模块
+                                if (editMode) {
+                                    onCheckedChange(module.id, module.id !in checkedIds)
+                                } else {
+                                    onClickModule(it.id, it.name, it.hasWebUi)
+                                }
                             },
                             modifier = Modifier
                                 .zIndex(if (isDragging) 1f else 0f)
@@ -658,16 +784,20 @@ private fun ModuleList(
                                         shadowElevation = 16f
                                     }
                                 }
-                                .pointerInput(module.id) {
-                                    detectDragGesturesAfterLongPress(
-                                        onDragStart = { startDrag(module.id) },
-                                        onDrag = { change, amount ->
-                                            change.consume()
-                                            dragBy(amount.y)
-                                        },
-                                        onDragEnd = { endDrag() },
-                                        onDragCancel = { endDrag() }
-                                    )
+                                .pointerInput(module.id, editMode) {
+                                    // 仅编辑模式下接管手势做拖拽排序；
+                                    // 非编辑模式的点击/长按由内层 combinedClickable 处理。
+                                    if (editMode) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = { startDrag(module.id) },
+                                            onDrag = { change, amount ->
+                                                change.consume()
+                                                dragBy(amount.y)
+                                            },
+                                            onDragEnd = { endDrag() },
+                                            onDragCancel = { endDrag() }
+                                        )
+                                    }
                                 })
                         // fix last item shadow incomplete in LazyColumn
                         Spacer(Modifier.height(1.dp))
@@ -680,6 +810,7 @@ private fun ModuleList(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ModuleItem(
     navigator: DestinationsNavigator,
@@ -689,7 +820,11 @@ private fun ModuleItem(
     pinned: Boolean,
     dimens: ApmCardDimens,
     isDragging: Boolean,
+    isEditing: Boolean = false,
+    editChecked: Boolean = false,
+    onEditCheckedChange: (Boolean) -> Unit = {},
     onTogglePin: () -> Unit,
+    onEnterEditMode: () -> Unit = {},
     onUninstall: (APModuleViewModel.ModuleInfo) -> Unit,
     onCheckChanged: (Boolean) -> Unit,
     onUpdate: (APModuleViewModel.ModuleInfo) -> Unit,
@@ -698,6 +833,7 @@ private fun ModuleItem(
     alpha: Float = 1f,
 ) {
     val decoration = if (!module.remove) TextDecoration.None else TextDecoration.LineThrough
+    val haptics = LocalHapticFeedback.current
     val moduleAuthor = stringResource(id = R.string.apm_author)
     val viewModel = viewModel<APModuleViewModel>()
     val compact = dimens.compact
@@ -713,7 +849,15 @@ private fun ModuleItem(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onClick(module) },
+                    .combinedClickable(
+                        onClick = { onClick(module) },
+                        onLongClick = {
+                            if (!isEditing) {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onEnterEditMode()
+                            }
+                        }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -728,6 +872,16 @@ private fun ModuleItem(
                         ),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // 编辑模式：左侧勾选框，用于批量置顶
+                        if (isEditing) {
+                            Checkbox(
+                                checked = editChecked,
+                                onCheckedChange = onEditCheckedChange,
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .size(dimens.iconButton)
+                            )
+                        }
                         Column(
                             modifier = Modifier
                                 .alpha(alpha = alpha)
@@ -756,19 +910,22 @@ private fun ModuleItem(
                             )
                         }
 
-                        IconButton(
-                            onClick = onTogglePin,
-                            modifier = Modifier.size(dimens.iconButton)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PushPin,
-                                contentDescription = stringResource(
-                                    if (pinned) R.string.apm_unpin else R.string.apm_pin
-                                ),
-                                modifier = Modifier.size(dimens.iconSize),
-                                tint = if (pinned) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                            )
+                        // 图钉只在编辑模式出现，平时不占位也不干扰点击
+                        if (isEditing) {
+                            IconButton(
+                                onClick = onTogglePin,
+                                modifier = Modifier.size(dimens.iconButton)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PushPin,
+                                    contentDescription = stringResource(
+                                        if (pinned) R.string.apm_unpin else R.string.apm_pin
+                                    ),
+                                    modifier = Modifier.size(dimens.iconSize),
+                                    tint = if (pinned) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                )
+                            }
                         }
 
                         if (isDragging) {
@@ -806,8 +963,8 @@ private fun ModuleItem(
                                 .alpha(alpha = alpha)
                                 .padding(horizontal = dimens.pad),
                             text = module.description,
-                            style = if (compact) MaterialTheme.typography.labelSmall
-                            else MaterialTheme.typography.bodySmall,
+                            // 紧凑模式只压几何尺寸，字号与标准模式保持一致
+                            style = MaterialTheme.typography.bodySmall,
                             textDecoration = decoration,
                             color = MaterialTheme.colorScheme.outline
                         )
