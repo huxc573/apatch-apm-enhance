@@ -78,6 +78,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -680,49 +681,82 @@ private fun ModuleList(
     val searchQuery = viewModel.searchQuery
     val dimens = remember(compact) { ApmCardDimens(compact) }
 
+    // ---- 拖拽排序状态 ----
+    // 参考 compose-reorderable / 官方 LazyColumn 拖拽排序的实现：
+    //   1) 记录「按下那一刻被拖卡片的槽位 offset」和「手指累计位移」，卡片画在 slot + delta；
+    //   2) 命中判断用 slot + delta 与所有可见项比较，命中就去 onMove 换位；
+    //   3) 换位后布局要等下一帧才更新，这之前不再重复换位（awaitingLayout），否则会疯狂来回跳。
     var draggingId by remember { mutableStateOf<String?>(null) }
-    var dragOffset by remember { mutableFloatStateOf(0f) }
+    // 手指自按下起的累计位移
+    var dragDelta by remember { mutableFloatStateOf(0f) }
+    // 按下瞬间卡片的槽位
+    var dragStartSlot by remember { mutableFloatStateOf(0f) }
+    // 卡片当前槽位（换位后会变），用于把「手指位置」换算成「相对当前槽位的位移」
+    var dragCurrentSlot by remember { mutableFloatStateOf(0f) }
+    var awaitingLayout by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
 
     fun startDrag(id: String) {
+        val info = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == id } ?: return
         draggingId = id
-        dragOffset = 0f
+        dragDelta = 0f
+        dragStartSlot = info.offset.toFloat()
+        dragCurrentSlot = info.offset.toFloat()
+        awaitingLayout = false
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     fun dragBy(deltaY: Float) {
         val id = draggingId ?: return
-        dragOffset += deltaY
-        val layout = state.layoutInfo
-        val dragged = layout.visibleItemsInfo.firstOrNull { it.key == id } ?: return
-        // 用被拖卡片顶边 + 位移判断它落到哪一格。
-        // 注意：命中目标后数据会立刻重排，布局在下一次测量前仍是旧的，
-        // 因此这里先用「目标当前顶边 - 被拖卡片当前顶边」做等量反向补偿，
-        // 让卡片在手指下面保持贴合，不会因为换位而跳动。
-        val top = dragged.offset + dragOffset
+        dragDelta += deltaY
+        if (awaitingLayout) return
+
+        val info = state.layoutInfo
+        val dragged = info.visibleItemsInfo.firstOrNull { it.key == id } ?: return
+
+        // 卡片当前在屏幕上的位置 = 它自己的槽位 + 手指位移
+        val top = dragStartSlot + dragDelta
         val center = top + dragged.size / 2f
-        val target = layout.visibleItemsInfo.firstOrNull {
+
+        // 找中心点落在哪个其它卡片的槽位里
+        val target = info.visibleItemsInfo.firstOrNull {
             it.key != id && center >= it.offset && center <= it.offset + it.size
         } ?: return
+
         val list = viewModel.moduleList
         val from = list.indexOfFirst { it.id == id }
         val to = list.indexOfFirst { it.id == target.key }
         if (from < 0 || to < 0 || from == to) return
-        val shift = (target.offset - dragged.offset).toFloat()
-        // 先补偿再改数据：改数据会触发重组，布局随后才更新
-        dragOffset -= shift
+
+        // 换位后，被拖卡片的槽位会变成目标卡片的槽位。
+        // 把 dragStartSlot 与 dragDelta 同步改写，使 top 仍等于原屏幕位置，卡片不瞬移；
+        // 同时把累计 delta 折成"相对新槽位的剩余偏移"，避免一次拖动连跳多格。
+        dragStartSlot = target.offset.toFloat()
+        dragDelta = top - dragStartSlot
+        dragCurrentSlot = target.offset.toFloat()
+        // 换位一下子跨了多远，就从累计位移里扣掉，防止下一帧继续用旧的大位移再跳一格
+        // （库的做法是 awaitingLayout 期间只靠布局刷新，这里等价于把 delta 归一到新槽位）
+
         viewModel.moveModule(id, to - from)
+        awaitingLayout = true
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     fun endDrag() {
         if (draggingId != null) {
-            // 拖完把当前可见顺序整体落成自定义顺序，避免各段残留旧位置
             viewModel.updateCustomOrderFromVisible(viewModel.moduleList.map { it.id })
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         }
         draggingId = null
-        dragOffset = 0f
+        dragDelta = 0f
+        awaitingLayout = false
+    }
+
+    // 换位后列表要重新测量一帧，visibleItemsInfo 才是新顺序。
+    // 用 snapshotFlow 盯着可见项 key 顺序变化，一变就解除等待（等价于库里的 awaitingLayout）。
+    LaunchedEffect(state, draggingId) {
+        if (draggingId == null) return@LaunchedEffect
+        snapshotFlow { state.layoutInfo.visibleItemsInfo.map { it.key } }
+            .collect { awaitingLayout = false }
     }
 
     PullToRefreshBox(
@@ -846,7 +880,8 @@ private fun ModuleList(
                                 .zIndex(if (isDragging) 1f else 0f)
                                 .graphicsLayer {
                                     if (isDragging) {
-                                        translationY = dragOffset
+                                        // 相对自己当前槽位的位移
+                                        translationY = dragStartSlot + dragDelta - dragCurrentSlot
                                         scaleX = 1.03f
                                         scaleY = 1.03f
                                         alpha = 0.97f
