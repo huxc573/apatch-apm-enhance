@@ -163,6 +163,22 @@
     <string name="apm_start_downloading">Start downloading: %s</string>
     <string name="apm_new_version_available">New version %s is available, click to upgrade.</string>
 
+    <string name="apm_search">Search</string>
+    <string name="apm_search_hint">Search modules</string>
+    <string name="apm_search_empty">No matching module</string>
+    <string name="apm_sort">Sort</string>
+    <string name="apm_sort_default">Default (ID)</string>
+    <string name="apm_sort_name">Name</string>
+    <string name="apm_sort_enabled">Enabled first</string>
+    <string name="apm_sort_custom">Custom order</string>
+    <string name="apm_pin">Pin to top</string>
+    <string name="apm_unpin">Unpin</string>
+    <string name="apm_pinned">Pinned</string>
+    <string name="apm_move_up">Move up</string>
+    <string name="apm_move_down">Move down</string>
+    <string name="apm_compact">Compact layout</string>
+    <string name="apm_sort_reset">Reset order and pins</string>
+
     <string name="hide_apatch_manager">Hide APatch Manager</string>
     <string name="hide_apatch_manager_summary">Install a proxy app with a random package ID and custom app label</string>
     <string name="hide_apatch_dialog_new_manager_name">New manager name</string>

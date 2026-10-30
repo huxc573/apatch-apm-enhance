@@ -48,11 +48,57 @@ class APModuleViewModel : ViewModel() {
     var isRefreshing by mutableStateOf(false)
         private set
 
+    /** 搜索关键字，空串表示不过滤。 */
+    var searchQuery by mutableStateOf("")
+        private set
+
+    /** 当前排序模式。 */
+    var sortMode by mutableStateOf(APModuleUiPrefs.sortMode())
+        private set
+
+    /** 紧凑布局开关。 */
+    var compact by mutableStateOf(APModuleUiPrefs.compact())
+        private set
+
+    private var pinnedIds by mutableStateOf(APModuleUiPrefs.pinnedIds())
+    private var customOrder by mutableStateOf(APModuleUiPrefs.customOrder())
+
     val moduleList by derivedStateOf {
-        val comparator = compareBy(Collator.getInstance(Locale.getDefault()), ModuleInfo::id)
-        modules.sortedWith(comparator).also {
-            isRefreshing = false
+        val collator = Collator.getInstance(Locale.getDefault())
+        val query = searchQuery.trim()
+
+        val filtered = if (query.isEmpty()) {
+            modules
+        } else {
+            modules.filter { m ->
+                m.name.contains(query, ignoreCase = true) ||
+                    m.id.contains(query, ignoreCase = true) ||
+                    m.author.contains(query, ignoreCase = true) ||
+                    m.description.contains(query, ignoreCase = true)
+            }
         }
+
+        val comparator: Comparator<ModuleInfo> = when (sortMode) {
+            APModuleSortMode.DEFAULT -> compareBy(collator) { it.id }
+
+            APModuleSortMode.NAME -> compareBy(collator) { it.name.ifEmpty { it.id } }
+
+            APModuleSortMode.ENABLED_FIRST ->
+                compareByDescending<ModuleInfo> { it.enabled }
+                    .thenBy(collator) { it.name.ifEmpty { it.id } }
+
+            APModuleSortMode.CUSTOM -> {
+                val index = customOrder.withIndex().associate { (i, id) -> id to i }
+                compareBy<ModuleInfo> { index[it.id] ?: Int.MAX_VALUE }
+                    .thenBy(collator) { it.name.ifEmpty { it.id } }
+            }
+        }
+
+        // sortedWith 是稳定排序，置顶的二次排序不会打乱上面选定的顺序
+        filtered
+            .sortedWith(comparator)
+            .sortedWith(compareByDescending<ModuleInfo> { it.id in pinnedIds })
+            .also { isRefreshing = false }
     }
 
     var isNeedRefresh by mutableStateOf(false)
@@ -60,6 +106,63 @@ class APModuleViewModel : ViewModel() {
 
     fun markNeedRefresh() {
         isNeedRefresh = true
+    }
+
+    fun updateSearchQuery(query: String) {
+        searchQuery = query
+    }
+
+    fun updateSortMode(mode: APModuleSortMode) {
+        sortMode = mode
+        APModuleUiPrefs.saveSortMode(mode)
+
+        // 首次切到自定义排序时，以当前可见顺序为基线
+        if (mode == APModuleSortMode.CUSTOM && customOrder.isEmpty()) {
+            customOrder = moduleList.map { it.id }
+            APModuleUiPrefs.saveCustomOrder(customOrder)
+        }
+    }
+
+    fun updateCompact(enabled: Boolean) {
+        compact = enabled
+        APModuleUiPrefs.saveCompact(enabled)
+    }
+
+    fun isPinned(id: String): Boolean = id in pinnedIds
+
+    fun togglePin(id: String) {
+        pinnedIds = if (id in pinnedIds) pinnedIds - id else pinnedIds + id
+        APModuleUiPrefs.savePinned(pinnedIds)
+    }
+
+    /**
+     * 在当前可见顺序上把 [id] 上移/下移 [delta] 位，并自动切到自定义排序。
+     */
+    fun moveModule(id: String, delta: Int) {
+        val order = moduleList.map { it.id }.toMutableList()
+        val from = order.indexOf(id)
+        if (from < 0) return
+        val to = from + delta
+        if (to !in order.indices) return
+
+        val tmp = order[from]
+        order[from] = order[to]
+        order[to] = tmp
+
+        customOrder = order
+        sortMode = APModuleSortMode.CUSTOM
+        APModuleUiPrefs.saveCustomOrder(order)
+        APModuleUiPrefs.saveSortMode(APModuleSortMode.CUSTOM)
+    }
+
+    fun resetCustomOrder() {
+        customOrder = emptyList()
+        APModuleUiPrefs.saveCustomOrder(emptyList())
+    }
+
+    fun clearPinned() {
+        pinnedIds = emptySet()
+        APModuleUiPrefs.savePinned(pinnedIds)
     }
 
     fun fetchModuleList() {

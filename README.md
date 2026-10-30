@@ -1,3 +1,17 @@
+> **本仓库是二开分支，不是上游 PR**
+>
+> 基线：上游 [bmax121/APatch](https://github.com/bmax121/APatch) 的 `166daa0`
+> （`Revert apd: uid listen event move to post-data-fs`，2025-11-12；
+> `git rev-list --count HEAD` = 942，对应 versionCode `11142`，与本机安装的
+> APatch `166daa0 (11142)` 完全一致）。
+>
+> 只在本机自用分支上做「系统模块（APModule）界面增强」：搜索、置顶、自定义排序、
+> 紧凑布局。上游有自己的 UI 规划，这些改动按上游口味大概率不会被合并，所以不做 PR，
+> 仅在此仓库维护，改动点与取证过程见 `AUDIT.md`。
+>
+> 上游代码与本文档均遵循 GPL-3.0（见 [LICENSE](LICENSE)）；版权归 bmax121
+> 及 APatch 贡献者所有。
+
 <div align="center">
 <a href="https://github.com/bmax121/APatch/releases/latest"><img src="https://images.weserv.nl/?url=https://raw.githubusercontent.com/bmax121/APatch/main/app/src/main/ic_launcher-playstore.png&mask=circle" style="width: 128px;" alt="logo"></a>
 

@@ -9,7 +9,8 @@ import android.util.Patterns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,12 +29,24 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -85,6 +98,7 @@ import me.bmax.apatch.ui.component.ModuleStateIndicator
 import me.bmax.apatch.ui.component.ModuleUpdateButton
 import me.bmax.apatch.ui.component.rememberConfirmDialog
 import me.bmax.apatch.ui.component.rememberLoadingDialog
+import me.bmax.apatch.ui.viewmodel.APModuleSortMode
 import me.bmax.apatch.ui.viewmodel.APModuleViewModel
 import me.bmax.apatch.util.DownloadListener
 import me.bmax.apatch.util.download
@@ -126,6 +140,9 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
             viewModel.fetchModuleList()
         }
     }
+
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+
     val webUILauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { viewModel.fetchModuleList() }
@@ -138,43 +155,61 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
 
     Scaffold(
         topBar = {
-        TopBar()
-    }, floatingActionButton = if (hideInstallButton) {
-        { /* Empty */ }
-    } else {
-        {
-            val selectZipLauncher = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.StartActivityForResult()
-            ) {
-                if (it.resultCode != RESULT_OK) {
-                    return@rememberLauncherForActivityResult
-                }
-                val data = it.data ?: return@rememberLauncherForActivityResult
-                val uri = data.data ?: return@rememberLauncherForActivityResult
-
-                Log.i("ModuleScreen", "select zip result: $uri")
-
-                navigator.navigate(InstallScreenDestination(uri, MODULE_TYPE.APM))
-
-                viewModel.markNeedRefresh()
-            }
-
-            FloatingActionButton(
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                containerColor = MaterialTheme.colorScheme.primary,
-                onClick = {
-                    // select the zip file to install
-                    val intent = Intent(Intent.ACTION_GET_CONTENT)
-                    intent.type = "application/zip"
-                    selectZipLauncher.launch(intent)
-                }) {
-                Icon(
-                    painter = painterResource(id = R.drawable.package_import),
-                    contentDescription = null
+            Column {
+                TopBar(
+                    searchActive = searchActive,
+                    onToggleSearch = {
+                        searchActive = !searchActive
+                        if (!searchActive) viewModel.updateSearchQuery("")
+                    },
+                    sortMode = viewModel.sortMode,
+                    onSortModeChange = viewModel::updateSortMode,
+                    compact = viewModel.compact,
+                    onToggleCompact = { viewModel.updateCompact(!viewModel.compact) },
                 )
+                if (searchActive) {
+                    SearchField(
+                        query = viewModel.searchQuery,
+                        onQueryChange = viewModel::updateSearchQuery
+                    )
+                }
             }
-        }
-    }, snackbarHost = { SnackbarHost(snackBarHost) }) { innerPadding ->
+        }, floatingActionButton = if (hideInstallButton) {
+            { /* Empty */ }
+        } else {
+            {
+                val selectZipLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartActivityForResult()
+                ) {
+                    if (it.resultCode != RESULT_OK) {
+                        return@rememberLauncherForActivityResult
+                    }
+                    val data = it.data ?: return@rememberLauncherForActivityResult
+                    val uri = data.data ?: return@rememberLauncherForActivityResult
+
+                    Log.i("ModuleScreen", "select zip result: $uri")
+
+                    navigator.navigate(InstallScreenDestination(uri, MODULE_TYPE.APM))
+
+                    viewModel.markNeedRefresh()
+                }
+
+                FloatingActionButton(
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    onClick = {
+                        // select the zip file to install
+                        val intent = Intent(Intent.ACTION_GET_CONTENT)
+                        intent.type = "application/zip"
+                        selectZipLauncher.launch(intent)
+                    }) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.package_import),
+                        contentDescription = null
+                    )
+                }
+            }
+        }, snackbarHost = { SnackbarHost(snackBarHost) }) { innerPadding ->
         when {
             hasMagisk -> {
                 Box(
@@ -217,6 +252,98 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TopBar(
+    searchActive: Boolean,
+    onToggleSearch: () -> Unit,
+    sortMode: APModuleSortMode,
+    onSortModeChange: (APModuleSortMode) -> Unit,
+    compact: Boolean,
+    onToggleCompact: () -> Unit,
+) {
+    var sortMenuExpanded by remember { mutableStateOf(false) }
+
+    TopAppBar(title = { Text(stringResource(R.string.apm)) }, actions = {
+        IconButton(onClick = onToggleSearch) {
+            Icon(
+                imageVector = if (searchActive) Icons.Filled.Close else Icons.Filled.Search,
+                contentDescription = stringResource(R.string.apm_search)
+            )
+        }
+
+        Box {
+            IconButton(onClick = { sortMenuExpanded = true }) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Sort,
+                    contentDescription = stringResource(R.string.apm_sort)
+                )
+            }
+            DropdownMenu(
+                expanded = sortMenuExpanded,
+                onDismissRequest = { sortMenuExpanded = false }
+            ) {
+                APModuleSortMode.entries.forEach { mode ->
+                    DropdownMenuItem(text = {
+                        Text(stringResource(mode.labelRes()))
+                    }, leadingIcon = {
+                        if (sortMode == mode) {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }, onClick = {
+                        onSortModeChange(mode)
+                        sortMenuExpanded = false
+                    })
+                }
+            }
+        }
+
+        IconButton(onClick = onToggleCompact) {
+            Icon(
+                imageVector = Icons.Filled.ViewAgenda,
+                contentDescription = stringResource(R.string.apm_compact),
+                tint = if (compact) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    })
+}
+
+private fun APModuleSortMode.labelRes(): Int = when (this) {
+    APModuleSortMode.DEFAULT -> R.string.apm_sort_default
+    APModuleSortMode.NAME -> R.string.apm_sort_name
+    APModuleSortMode.ENABLED_FIRST -> R.string.apm_sort_enabled
+    APModuleSortMode.CUSTOM -> R.string.apm_sort_custom
+}
+
+@Composable
+private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        placeholder = { Text(stringResource(R.string.apm_search_hint)) },
+        leadingIcon = {
+            Icon(imageVector = Icons.Filled.Search, contentDescription = null)
+        },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(imageVector = Icons.Filled.Clear, contentDescription = null)
+                }
+            }
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(12.dp)
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -342,6 +469,9 @@ private fun ModuleList(
         }
     }
 
+    val compact = viewModel.compact
+    val searchQuery = viewModel.searchQuery
+
     PullToRefreshBox(
         modifier = modifier,
         onRefresh = { viewModel.fetchModuleList() },
@@ -350,12 +480,12 @@ private fun ModuleList(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             state = state,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = remember {
+            verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 16.dp),
+            contentPadding = remember(compact) {
                 PaddingValues(
-                    start = 16.dp,
-                    top = 16.dp,
-                    end = 16.dp,
+                    start = if (compact) 8.dp else 16.dp,
+                    top = if (compact) 8.dp else 16.dp,
+                    end = if (compact) 8.dp else 16.dp,
                     bottom = 16.dp + 16.dp + 56.dp /*  Scaffold Fab Spacing + Fab container height */
                 )
             },
@@ -368,14 +498,18 @@ private fun ModuleList(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                stringResource(R.string.apm_empty), textAlign = TextAlign.Center
+                                stringResource(
+                                    if (searchQuery.isNotEmpty()) R.string.apm_search_empty
+                                    else R.string.apm_empty
+                                ), textAlign = TextAlign.Center
                             )
                         }
                     }
                 }
 
                 else -> {
-                    items(viewModel.moduleList) { module ->
+                    val visible = viewModel.moduleList
+                    items(visible, key = { it.id }) { module ->
                         var isChecked by rememberSaveable(module) { mutableStateOf(module.enabled) }
                         val scope = rememberCoroutineScope()
                         val updatedModule by produceState(initialValue = Triple("", "", "")) {
@@ -383,12 +517,24 @@ private fun ModuleList(
                                 value = viewModel.checkUpdate(module)
                             }
                         }
+                        val index = visible.indexOf(module)
 
                         ModuleItem(
                             navigator,
                             module,
                             isChecked,
                             updatedModule.first,
+                            pinned = viewModel.isPinned(module.id),
+                            compact = compact,
+                            canMoveUp = index > 0,
+                            canMoveDown = index in 0 until visible.lastIndex,
+                            onTogglePin = { viewModel.togglePin(module.id) },
+                            onMoveUp = { viewModel.moveModule(module.id, -1) },
+                            onMoveDown = { viewModel.moveModule(module.id, 1) },
+                            onResetOrder = {
+                                viewModel.resetCustomOrder()
+                                viewModel.clearPinned()
+                            },
                             onUninstall = {
                                 scope.launch { onModuleUninstall(module) }
                             },
@@ -441,18 +587,21 @@ private fun ModuleList(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TopBar() {
-    TopAppBar(title = { Text(stringResource(R.string.apm)) })
-}
-
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ModuleItem(
     navigator: DestinationsNavigator,
     module: APModuleViewModel.ModuleInfo,
     isChecked: Boolean,
     updateUrl: String,
+    pinned: Boolean,
+    compact: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onTogglePin: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onResetOrder: () -> Unit,
     onUninstall: (APModuleViewModel.ModuleInfo) -> Unit,
     onCheckChanged: (Boolean) -> Unit,
     onUpdate: (APModuleViewModel.ModuleInfo) -> Unit,
@@ -463,141 +612,217 @@ private fun ModuleItem(
     val decoration = if (!module.remove) TextDecoration.None else TextDecoration.LineThrough
     val moduleAuthor = stringResource(id = R.string.apm_author)
     val viewModel = viewModel<APModuleViewModel>()
+
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    val itemPadding = if (compact) 10.dp else 16.dp
+    val titleStyle = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+
     Surface(
         modifier = modifier,
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        shape = RoundedCornerShape(20.dp)
+        tonalElevation = if (compact) 0.dp else 1.dp,
+        shape = RoundedCornerShape(if (compact) 12.dp else 20.dp)
     ) {
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onClick(module) },
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth()
+        Box {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .combinedClickable(onClick = { onClick(module) }, onLongClick = {
+                        menuExpanded = true
+                    }),
+                contentAlignment = Alignment.Center
             ) {
-                Row(
-                    modifier = Modifier.padding(all = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .alpha(alpha = alpha)
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    Row(
+                        modifier = Modifier.padding(all = itemPadding),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = module.name,
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 2,
-                            textDecoration = decoration,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column(
+                            modifier = Modifier
+                                .alpha(alpha = alpha)
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (pinned) {
+                                    Icon(
+                                        imageVector = Icons.Filled.PushPin,
+                                        contentDescription = stringResource(R.string.apm_pinned),
+                                        modifier = Modifier
+                                            .padding(end = 4.dp)
+                                            .size(14.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Text(
+                                    text = module.name,
+                                    style = titleStyle,
+                                    maxLines = if (compact) 1 else 2,
+                                    textDecoration = decoration,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
 
+                            Text(
+                                text = "${module.version}, $moduleAuthor ${module.author}",
+                                style = MaterialTheme.typography.bodySmall,
+                                textDecoration = decoration,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Switch(
+                            enabled = !module.update,
+                            checked = isChecked,
+                            onCheckedChange = onCheckChanged
+                        )
+                    }
+
+                    if (!compact) {
                         Text(
-                            text = "${module.version}, $moduleAuthor ${module.author}",
+                            modifier = Modifier
+                                .alpha(alpha = alpha)
+                                .padding(horizontal = 16.dp),
+                            text = module.description,
                             style = MaterialTheme.typography.bodySmall,
                             textDecoration = decoration,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.outline
                         )
                     }
 
-                    Switch(
-                        enabled = !module.update,
-                        checked = isChecked,
-                        onCheckedChange = onCheckChanged
+                    HorizontalDivider(
+                        thickness = 1.5.dp,
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.padding(top = if (compact) 2.dp else 8.dp)
                     )
+
+                    Row(
+                        modifier = Modifier
+                            .padding(
+                                horizontal = itemPadding,
+                                vertical = if (compact) 2.dp else 8.dp
+                            )
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (updateUrl.isNotEmpty()) {
+                            ModuleUpdateButton(onClick = { onUpdate(module) })
+
+                            Spacer(modifier = Modifier.width(12.dp))
+                        }
+
+                        if (module.hasWebUi) {
+                            FilledTonalButton(
+                                onClick = { onClick(module) },
+                                enabled = true,
+                                contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) {
+                                Icon(
+                                    modifier = Modifier.size(20.dp),
+                                    painter = painterResource(id = R.drawable.settings),
+                                    contentDescription = null
+                                )
+
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(id = R.string.apm_webui_open),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Visible,
+                                    softWrap = false
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+                        }
+
+                        if (module.hasActionScript) {
+                            FilledTonalButton(
+                                onClick = {
+                                    navigator.navigate(ExecuteAPMActionScreenDestination(module.id))
+                                    viewModel.markNeedRefresh()
+                                }, enabled = true, contentPadding = PaddingValues(horizontal = 12.dp)
+                            ) {
+                                Icon(
+                                    modifier = Modifier.size(20.dp),
+                                    painter = painterResource(id = R.drawable.settings),
+                                    contentDescription = null
+                                )
+
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(id = R.string.apm_action),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Visible,
+                                    softWrap = false
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+                        }
+                        ModuleRemoveButton(enabled = !module.remove, onClick = {
+                            onUninstall(module)
+                        })
+                    }
                 }
 
-                Text(
-                    modifier = Modifier
-                        .alpha(alpha = alpha)
-                        .padding(horizontal = 16.dp),
-                    text = module.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    textDecoration = decoration,
-                    color = MaterialTheme.colorScheme.outline
-                )
-
-                HorizontalDivider(
-                    thickness = 1.5.dp,
-                    color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    if (updateUrl.isNotEmpty()) {
-                        ModuleUpdateButton(onClick = { onUpdate(module) })
-
-                        Spacer(modifier = Modifier.width(12.dp))
-                    }
-
-                    if (module.hasWebUi) {
-                        FilledTonalButton(
-                            onClick = { onClick(module) },
-                            enabled = true,
-                            contentPadding = PaddingValues(horizontal = 12.dp)
-                        ) {
-                            Icon(
-                                modifier = Modifier.size(20.dp),
-                                painter = painterResource(id = R.drawable.settings),
-                                contentDescription = null
-                            )
-
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = stringResource(id = R.string.apm_webui_open),
-                                maxLines = 1,
-                                overflow = TextOverflow.Visible,
-                                softWrap = false
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-                    }
-
-                    if (module.hasActionScript) {
-                        FilledTonalButton(
-                            onClick = {
-                                navigator.navigate(ExecuteAPMActionScreenDestination(module.id))
-                                viewModel.markNeedRefresh()
-                            }, enabled = true, contentPadding = PaddingValues(horizontal = 12.dp)
-                        ) {
-                            Icon(
-                                modifier = Modifier.size(20.dp),
-                                painter = painterResource(id = R.drawable.settings),
-                                contentDescription = null
-                            )
-
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = stringResource(id = R.string.apm_action),
-                                maxLines = 1,
-                                overflow = TextOverflow.Visible,
-                                softWrap = false
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-                    }
-                    ModuleRemoveButton(enabled = !module.remove, onClick = { onUninstall(module) })
+                if (module.remove) {
+                    ModuleStateIndicator(R.drawable.trash)
+                }
+                if (module.update) {
+                    ModuleStateIndicator(R.drawable.device_mobile_down)
                 }
             }
 
-            if (module.remove) {
-                ModuleStateIndicator(R.drawable.trash)
-            }
-            if (module.update) {
-                ModuleStateIndicator(R.drawable.device_mobile_down)
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false }
+            ) {
+                DropdownMenuItem(text = {
+                    Text(
+                        stringResource(
+                            if (pinned) R.string.apm_unpin else R.string.apm_pin
+                        )
+                    )
+                }, leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Filled.PushPin,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }, onClick = {
+                    menuExpanded = false
+                    onTogglePin()
+                })
+
+                DropdownMenuItem(text = {
+                    Text(stringResource(R.string.apm_move_up))
+                }, enabled = canMoveUp, onClick = {
+                    menuExpanded = false
+                    onMoveUp()
+                })
+
+                DropdownMenuItem(text = {
+                    Text(stringResource(R.string.apm_move_down))
+                }, enabled = canMoveDown, onClick = {
+                    menuExpanded = false
+                    onMoveDown()
+                })
+
+                HorizontalDivider()
+
+                DropdownMenuItem(text = {
+                    Text(stringResource(R.string.apm_sort_reset))
+                }, onClick = {
+                    menuExpanded = false
+                    onResetOrder()
+                })
             }
         }
     }
