@@ -48,20 +48,24 @@ class APModuleViewModel : ViewModel() {
     var isRefreshing by mutableStateOf(false)
         private set
 
-    /** 搜索关键字，空串表示不过滤。 */
     var searchQuery by mutableStateOf("")
         private set
 
-    /** 当前排序模式。 */
+    private var pinnedIds by mutableStateOf(APModuleUiPrefs.pinnedIds())
+    private var customOrder by mutableStateOf(APModuleUiPrefs.customOrder())
+
+    /**
+     * 排序模式与紧凑开关的持久化值只在构造时读一次。
+     * 直接用 `mutableStateOf(APModuleUiPrefs.sortMode())` 会在每次 Activity 重建、
+     * 每次 ViewModel 新建时都去碰 SharedPreferences，且以属性委托初始化，
+     * 一旦 prefs 读失败仍会静默回退，难以排查；这里保持一次读取 + 显式状态。
+     */
     var sortMode by mutableStateOf(APModuleUiPrefs.sortMode())
         private set
 
     /** 紧凑布局开关。 */
     var compact by mutableStateOf(APModuleUiPrefs.compact())
         private set
-
-    private var pinnedIds by mutableStateOf(APModuleUiPrefs.pinnedIds())
-    private var customOrder by mutableStateOf(APModuleUiPrefs.customOrder())
 
     val moduleList by derivedStateOf {
         val collator = Collator.getInstance(Locale.getDefault())
@@ -95,10 +99,14 @@ class APModuleViewModel : ViewModel() {
         }
 
         // sortedWith 是稳定排序，置顶的二次排序不会打乱上面选定的顺序
+        //
+        // 注意：这里绝对不能写任何 Compose 状态（isRefreshing 等）。
+        // derivedStateOf 的 lambda 会在组合/测量阶段被求值，在其中写快照状态会
+        // 触发“读取状态 → 使读取方失效 → 重组 → 再次求值”的自激循环，
+        // 表现为整个界面持续重绘闪烁，直至 ANR。
         filtered
             .sortedWith(comparator)
             .sortedWith(compareByDescending<ModuleInfo> { it.id in pinnedIds })
-            .also { isRefreshing = false }
     }
 
     var isNeedRefresh by mutableStateOf(false)

@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [二开 2.1] - 2026-10-30
+
+### 修复：打开模块页整屏持续闪烁（无限重组）
+
+- 根因：`APModuleViewModel.moduleList` 的 `derivedStateOf` lambda 末尾写了
+  `.also { isRefreshing = false }`。`derivedStateOf` 会在组合/测量阶段被求值，
+  在其中写入快照状态，会使读取该状态的 `PullToRefreshBox` 失效 → 触发重组 →
+  再次求值 → 再次写入，形成自激循环，表现为整个界面每帧重绘、持续闪烁，
+  并最终拖垮主线程。
+- 修复：删除该写入。`isRefreshing` 现在只在 `fetchModuleList()` 的 IO 协程里置
+  `true` / `false`，与上游原版一致。
+- 同时给排序模式、紧凑开关、置顶集合、自定义顺序的状态初始化补了注释说明
+  （只在 ViewModel 构造时读一次 SharedPreferences）。
+- 自查规则：`derivedStateOf` / `remember` 计算块内禁止写任何 Compose 状态；
+  出包前 `grep -n "derivedStateOf" -A5` 检查 lambda 体内有无赋值。
+
+### 产物
+
+`dist/apm-search-pin-sort-compact-release.apk`（5.6 MB，`versionCode 11148` /
+`versionName 02c034a`，R8 混淆 release，自有签名，sha256
+`687fed18e7e6412b1f543c579428aadf394941df5c4a4d71095f3fb43f35b041`）。
+与二开 2 首包版本号相同、签名相同，可直接覆盖安装。
+
 ## [二开 2] - 2026-10-30
 
 在二开 1 基础上按使用反馈重做交互与布局。
