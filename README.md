@@ -13,6 +13,9 @@
 **为什么不做 PR**：这四项都是个人使用偏好，和上游模块页的 UI 规划不一致，按上游口味大概率
 不会被合并；因此只在本仓库维护，不改上游行为、不改 native / apd / 模块安装流程。
 
+**仓库形态**：本机本地 fork（`git remote` 只有 `upstream` 指向上游，供 diff / rebase 对比，
+没有推送远端）；分支 `feat/apm-search-pin-sort-compact` 在此维护。
+
 **引用与许可**：上游代码与本文档遵循 GPL-3.0（见 [LICENSE](LICENSE)），版权归 bmax121 及
 APatch 贡献者所有；本仓库仅在其基础上做上述界面增强。改动点、混淆样本定位与验证记录见
 [AUDIT.md](AUDIT.md)，构建步骤见 [BUILD.md](BUILD.md)，版本记录见 [CHANGELOG.md](CHANGELOG.md)。
