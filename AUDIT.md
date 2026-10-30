@@ -99,8 +99,15 @@ $ git log -1 --format='%H %ad %s' 166daa0
 - 编译验证：`./gradlew :app:compileDebugKotlin` **BUILD SUCCESSFUL**（JDK 21 / SDK 36 / Kotlin 2.2.21）。
 - 构建机是 arm64 Android，Debian 环境里通过 `qemu-user-static` + `binfmt_misc` 运行 x86_64 的
   `aapt2`/`aidl`；资源编译、KSP（compose-destinations）、Kotlin 编译全部通过。
+- 出包验证：用同版本官方 APK 的 `lib/arm64-v8a/*.so` 走预编译库路线执行 `assembleDebug`，
+  产物 `APatch_11142_166daa0_apm-enhance-debug.apk`（25,173,866 字节，debug 签名），
+  存放于 `Eta/archive/apatch-apm-enhance/`，不入库。
+- 产物核对：`aapt2 dump badging` 为 `versionCode=11142 / versionName=166daa0`；
+  `aapt2 dump resources` 已包含 `apm_search`、`apm_pin`、`apm_move_up`、`apm_sort_custom`、
+  `apm_compact` 等新增文案（中英双语），确认改动已打进 APK。
 - 完整 `assembleRelease` 还需要 NDK 29.0.14206865、CMake 3.28 与 Rust `cargo-ndk`（`apd`），
-  本机未装齐，故只做到 Kotlin 编译验证；构建步骤见 `BUILD.md`。
+  本机未装齐，故未出 release 包；构建步骤见 `BUILD.md`。
+
 
 ## 7. 上游关系
 

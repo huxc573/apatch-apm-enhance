@@ -1,16 +1,25 @@
-> **本仓库是二开分支，不是上游 PR**
->
-> 基线：上游 [bmax121/APatch](https://github.com/bmax121/APatch) 的 `166daa0`
-> （`Revert apd: uid listen event move to post-data-fs`，2025-11-12；
-> `git rev-list --count HEAD` = 942，对应 versionCode `11142`，与本机安装的
-> APatch `166daa0 (11142)` 完全一致）。
->
-> 只在本机自用分支上做「系统模块（APModule）界面增强」：搜索、置顶、自定义排序、
-> 紧凑布局。上游有自己的 UI 规划，这些改动按上游口味大概率不会被合并，所以不做 PR，
-> 仅在此仓库维护，改动点与取证过程见 `AUDIT.md`。
->
-> 上游代码与本文档均遵循 GPL-3.0（见 [LICENSE](LICENSE)）；版权归 bmax121
-> 及 APatch 贡献者所有。
+## 二开说明（Downstream fork，不提交上游 PR）
+
+本仓库是**本机自用的 APatch 二开分支**，不是上游官方发布，也不是待合并的 PR。
+
+| 项 | 值 |
+| --- | --- |
+| 上游项目 | [bmax121/APatch](https://github.com/bmax121/APatch)（GPL-3.0） |
+| 二开基线 | [`166daa0`](https://github.com/bmax121/APatch/commit/166daa081c5107e1036a3e5caa1380e8a1a863cb) — `Revert apd: uid listen event move to post-data-fs`（2025-11-12） |
+| 基线版本号 | `versionCode 11142` / `versionName 166daa0`（942 个提交，与本机安装的 APatch 完全一致） |
+| 本分支 | `feat/apm-search-pin-sort-compact` |
+| 改动范围 | 仅「系统模块（APModule）」列表界面：搜索、置顶、自定义排序、紧凑布局 |
+
+**为什么不做 PR**：这四项都是个人使用偏好，和上游模块页的 UI 规划不一致，按上游口味大概率
+不会被合并；因此只在本仓库维护，不改上游行为、不改 native / apd / 模块安装流程。
+
+**引用与许可**：上游代码与本文档遵循 GPL-3.0（见 [LICENSE](LICENSE)），版权归 bmax121 及
+APatch 贡献者所有；本仓库仅在其基础上做上述界面增强。改动点、混淆样本定位与验证记录见
+[AUDIT.md](AUDIT.md)，构建步骤见 [BUILD.md](BUILD.md)，版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+**安装提示**：自编译包使用本机 debug 签名，与官方包签名不同，覆盖安装前需先卸载官方管理器
+（会清掉管理器侧的 SuperKey 配置，模块与 `/data/adb` 数据不受影响）。
+
 
 <div align="center">
 <a href="https://github.com/bmax121/APatch/releases/latest"><img src="https://images.weserv.nl/?url=https://raw.githubusercontent.com/bmax121/APatch/main/app/src/main/ic_launcher-playstore.png&mask=circle" style="width: 128px;" alt="logo"></a>
