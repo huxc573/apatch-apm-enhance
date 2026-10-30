@@ -158,18 +158,35 @@ class APModuleViewModel : ViewModel() {
     }
 
     /**
-     * 在当前可见顺序上把 [id] 上移/下移 [delta] 位，并自动切到自定义排序。
+     * 在当前可见顺序上把 [id] 上移/下移 [delta] 位。
+     *
+     * 注意：这里是"插入到目标位置"（remove + add），不是相邻交换。
+     * 拖拽一次可能跨好几格，用交换实现需要连发多次、每次都触发重组，
+     * 是之前向上拖动乱跳的根源；一次性插入则只有一次数据变更。
      */
     fun moveModule(id: String, delta: Int) {
+        if (delta == 0) return
         val order = moduleList.map { it.id }.toMutableList()
         val from = order.indexOf(id)
         if (from < 0) return
-        val to = from + delta
-        if (to !in order.indices) return
+        val to = (from + delta).coerceIn(0, order.lastIndex)
+        if (to == from) return
+        applyOrder(order, from, to)
+    }
 
-        val tmp = order[from]
-        order[from] = order[to]
-        order[to] = tmp
+    /** 把 [id] 直接插到 [targetIndex]（拖拽排序用），语义与 [moveModule] 一致。 */
+    fun moveModuleTo(id: String, targetIndex: Int) {
+        val order = moduleList.map { it.id }.toMutableList()
+        val from = order.indexOf(id)
+        if (from < 0) return
+        val to = targetIndex.coerceIn(0, order.lastIndex)
+        if (to == from) return
+        applyOrder(order, from, to)
+    }
+
+    private fun applyOrder(order: MutableList<String>, from: Int, to: Int) {
+        val item = order.removeAt(from)
+        order.add(to, item)
 
         customOrder = order
         sortMode = APModuleSortMode.CUSTOM

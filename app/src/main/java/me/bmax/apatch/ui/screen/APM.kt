@@ -37,6 +37,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
@@ -74,11 +76,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -168,12 +168,7 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
     var editMode by rememberSaveable { mutableStateOf(false) }
     // 编辑模式下被勾选的模块，用于批量置顶
     var checkedIds by remember { mutableStateOf(setOf<String>()) }
-    // 排序状态：编辑模式下点「排序」进入，卡片上按住即拖动
-    var sortMode by remember { mutableStateOf(false) }
-    // 刚按过排序按钮的短窗口内忽略卡片点击，避免按钮抬起被卡片吞掉
-    var suppressClickUntil by remember { mutableLongStateOf(0L) }
     val scope = rememberCoroutineScope()
-    val sortHint = stringResource(R.string.apm_sort_hint)
 
     val webUILauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -210,12 +205,6 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
             if (editMode) {
                 EditModeBar(
                     checkedCount = checkedIds.size,
-                    sortMode = sortMode,
-                    onSortPressed = {
-                        // 按钮不承载拖拽：按下后把手指拖到卡片上，再小幅移动即开始拖动
-                        suppressClickUntil = System.currentTimeMillis() + 700L
-                        scope.launch { snackBarHost.showSnackbar(sortHint) }
-                    },
                     onPinChecked = {
                         viewModel.pinAll(checkedIds)
                         checkedIds = emptySet()
@@ -230,7 +219,6 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
                     onClearSelection = { checkedIds = emptySet() },
                     onDone = {
                         editMode = false
-                        sortMode = false
                         checkedIds = emptySet()
                     }
                 )
@@ -299,18 +287,11 @@ fun APModuleScreen(navigator: DestinationsNavigator) {
                     onCheckedChange = { id, isChecked ->
                         checkedIds = if (isChecked) checkedIds + id else checkedIds - id
                     },
-                    onEnterEditMode = {
-                        editMode = true
-                        sortMode = false
-                    },
+                    onEnterEditMode = { editMode = true },
                     onExitEditMode = {
                         editMode = false
-                        sortMode = false
                         checkedIds = emptySet()
                     },
-                    sortMode = sortMode,
-                    suppressClickUntil = suppressClickUntil,
-                    onToggleSort = { sortMode = !sortMode },
                     onInstallModule = {
                         navigator.navigate(InstallScreenDestination(it, MODULE_TYPE.APM))
                     },
@@ -458,14 +439,11 @@ private class ApmCardDimens(val compact: Boolean) {
 
 /**
  * 编辑模式的底部操作栏：批量置顶 / 取消置顶 / 全选 / 完成。
- * 长按进入编辑模式后出现，替代平时隐藏在图钉按钮里的操作。
- * 编辑模式下「排序」直接开始拖动，不必再去卡片上长按。
+ * 排序在每张卡片上用 ↑ ↓ 按钮完成（稳定可预期），拖把手是额外便利。
  */
 @Composable
 private fun EditModeBar(
     checkedCount: Int,
-    sortMode: Boolean,
-    onSortPressed: () -> Unit,
     onPinChecked: () -> Unit,
     onUnpinChecked: () -> Unit,
     onSelectAll: () -> Unit,
@@ -483,8 +461,7 @@ private fun EditModeBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (sortMode) stringResource(R.string.apm_sort_hint)
-                    else stringResource(R.string.apm_selected_count, checkedCount),
+                    text = stringResource(R.string.apm_selected_count, checkedCount),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 TextButton(onClick = if (checkedCount == 0) onSelectAll else onClearSelection) {
@@ -501,23 +478,6 @@ private fun EditModeBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 按住即可上下拖动排序；位置在拖动过程中实时落盘
-                OutlinedButton(
-                    onClick = onSortPressed,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.DragHandle,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        stringResource(R.string.apm_sort_handle),
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
                 Button(
                     onClick = onPinChecked,
                     enabled = checkedCount > 0,
@@ -558,9 +518,6 @@ private fun ModuleList(
     onCheckedChange: (String, Boolean) -> Unit = { _, _ -> },
     onEnterEditMode: () -> Unit = {},
     onExitEditMode: () -> Unit = {},
-    sortMode: Boolean = false,
-    onToggleSort: () -> Unit = {},
-    suppressClickUntil: Long = 0L,
     onInstallModule: (Uri) -> Unit,
     onClickModule: (id: String, name: String, hasWebUi: Boolean) -> Unit,
     snackBarHost: SnackbarHostState,
@@ -682,81 +639,64 @@ private fun ModuleList(
     val dimens = remember(compact) { ApmCardDimens(compact) }
 
     // ---- 拖拽排序状态 ----
-    // 参考 compose-reorderable / 官方 LazyColumn 拖拽排序的实现：
-    //   1) 记录「按下那一刻被拖卡片的槽位 offset」和「手指累计位移」，卡片画在 slot + delta；
-    //   2) 命中判断用 slot + delta 与所有可见项比较，命中就去 onMove 换位；
-    //   3) 换位后布局要等下一帧才更新，这之前不再重复换位（awaitingLayout），否则会疯狂来回跳。
+    // 只保存"手指累计位移"。卡片实际画在：当前槽位 + 位移，位移由列表真实布局得出，
+    // 不在代码里自己累加槽位，避免和 LazyColumn 的布局打架。
     var draggingId by remember { mutableStateOf<String?>(null) }
-    // 手指自按下起的累计位移
     var dragDelta by remember { mutableFloatStateOf(0f) }
-    // 按下瞬间卡片的槽位
-    var dragStartSlot by remember { mutableFloatStateOf(0f) }
-    // 卡片当前槽位（换位后会变），用于把「手指位置」换算成「相对当前槽位的位移」
-    var dragCurrentSlot by remember { mutableFloatStateOf(0f) }
-    var awaitingLayout by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
 
     fun startDrag(id: String) {
-        val info = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == id } ?: return
         draggingId = id
         dragDelta = 0f
-        dragStartSlot = info.offset.toFloat()
-        dragCurrentSlot = info.offset.toFloat()
-        awaitingLayout = false
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     fun dragBy(deltaY: Float) {
         val id = draggingId ?: return
         dragDelta += deltaY
-        if (awaitingLayout) return
 
         val info = state.layoutInfo
         val dragged = info.visibleItemsInfo.firstOrNull { it.key == id } ?: return
 
-        // 卡片当前在屏幕上的位置 = 它自己的槽位 + 手指位移
-        val top = dragStartSlot + dragDelta
-        val center = top + dragged.size / 2f
-
-        // 找中心点落在哪个其它卡片的槽位里
-        val target = info.visibleItemsInfo.firstOrNull {
-            it.key != id && center >= it.offset && center <= it.offset + it.size
-        } ?: return
+        // 卡片当前视觉顶端 = 它的真实槽位 + 手指位移
+        val visualTop = dragged.offset + dragDelta
+        val visualCenter = visualTop + dragged.size / 2f
 
         val list = viewModel.moduleList
         val from = list.indexOfFirst { it.id == id }
-        val to = list.indexOfFirst { it.id == target.key }
-        if (from < 0 || to < 0 || from == to) return
+        if (from < 0) return
 
-        // 换位后，被拖卡片的槽位会变成目标卡片的槽位。
-        // 把 dragStartSlot 与 dragDelta 同步改写，使 top 仍等于原屏幕位置，卡片不瞬移；
-        // 同时把累计 delta 折成"相对新槽位的剩余偏移"，避免一次拖动连跳多格。
-        dragStartSlot = target.offset.toFloat()
-        dragDelta = top - dragStartSlot
-        dragCurrentSlot = target.offset.toFloat()
-        // 换位一下子跨了多远，就从累计位移里扣掉，防止下一帧继续用旧的大位移再跳一格
-        // （库的做法是 awaitingLayout 期间只靠布局刷新，这里等价于把 delta 归一到新槽位）
+        // 收集"其它可见卡片"：带上它们在列表里的绝对索引
+        val others = info.visibleItemsInfo
+            .filter { it.key != id }
+            .mapNotNull { vi ->
+                val li = list.indexOfFirst { it.id == vi.key }
+                if (li >= 0) Triple(li, vi.offset, vi.size) else null
+            }
+            .sortedBy { it.second }
+        if (others.isEmpty()) return
 
-        viewModel.moveModule(id, to - from)
-        awaitingLayout = true
+        // 目标位置：中心点落在哪张其它卡片身上，就插到它的位置。
+        // 中心点在所有其它卡片之上 -> 插到最前面那张之前；在之下 -> 插到最后那张之后。
+        val hit = others.firstOrNull { visualCenter >= it.second && visualCenter <= it.second + it.third }
+        val target = when {
+            hit != null -> hit.first
+            visualCenter < others.first().second -> others.first().first
+            else -> others.last().first
+        }
+        if (target == from) return
+
+        // 位移折抵：卡片在新位置的槽位与旧位置之差，抵掉后它仍停在手指下
+        val targetSlot = others.firstOrNull { it.first == target }?.second
+        if (targetSlot != null) dragDelta += dragged.offset - targetSlot
+
+        viewModel.moveModuleTo(id, target)
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     fun endDrag() {
-        if (draggingId != null) {
-            viewModel.updateCustomOrderFromVisible(viewModel.moduleList.map { it.id })
-        }
         draggingId = null
         dragDelta = 0f
-        awaitingLayout = false
-    }
-
-    // 换位后列表要重新测量一帧，visibleItemsInfo 才是新顺序。
-    // 用 snapshotFlow 盯着可见项 key 顺序变化，一变就解除等待（等价于库里的 awaitingLayout）。
-    LaunchedEffect(state, draggingId) {
-        if (draggingId == null) return@LaunchedEffect
-        snapshotFlow { state.layoutInfo.visibleItemsInfo.map { it.key } }
-            .collect { awaitingLayout = false }
     }
 
     PullToRefreshBox(
@@ -817,14 +757,10 @@ private fun ModuleList(
                             isEditing = editMode,
                             editChecked = module.id in checkedIds,
                             onEditCheckedChange = { onCheckedChange(module.id, it) },
-                            onTogglePin = {
-                                // 编辑模式下点图钉表示勾选，避免和图钉本身的置顶混淆
-                                if (sortMode) onCheckedChange(module.id, module.id !in checkedIds)
-                            },
+                            onTogglePin = { viewModel.togglePin(module.id) },
+                            onMoveUp = { viewModel.moveModule(module.id, -1) },
+                            onMoveDown = { viewModel.moveModule(module.id, 1) },
                             onEnterEditMode = onEnterEditMode,
-                            dragOnPress = sortMode,
-                            suppressClickUntil = suppressClickUntil,
-                            onSortToggle = onToggleSort,
                             onDragStart = { startDrag(module.id) },
                             onDrag = { dragBy(it) },
                             onDragEnd = { endDrag() },
@@ -869,9 +805,7 @@ private fun ModuleList(
                             onClick = {
                                 // 编辑模式下点击卡片＝勾选，不再打开模块
                                 if (editMode) {
-                                    if (System.currentTimeMillis() >= suppressClickUntil) {
-                                        onCheckedChange(module.id, module.id !in checkedIds)
-                                    }
+                                    onCheckedChange(module.id, module.id !in checkedIds)
                                 } else {
                                     onClickModule(it.id, it.name, it.hasWebUi)
                                 }
@@ -880,8 +814,7 @@ private fun ModuleList(
                                 .zIndex(if (isDragging) 1f else 0f)
                                 .graphicsLayer {
                                     if (isDragging) {
-                                        // 相对自己当前槽位的位移
-                                        translationY = dragStartSlot + dragDelta - dragCurrentSlot
+                                        translationY = dragDelta
                                         scaleX = 1.03f
                                         scaleY = 1.03f
                                         alpha = 0.97f
@@ -914,10 +847,9 @@ private fun ModuleItem(
     editChecked: Boolean = false,
     onEditCheckedChange: (Boolean) -> Unit = {},
     onTogglePin: () -> Unit,
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {},
     onEnterEditMode: () -> Unit = {},
-    dragOnPress: Boolean = false,
-    suppressClickUntil: Long = 0L,
-    onSortToggle: () -> Unit = {},
     onDragStart: () -> Unit = {},
     onDrag: (Float) -> Unit = {},
     onDragEnd: () -> Unit = {},
@@ -947,21 +879,10 @@ private fun ModuleItem(
                     .fillMaxWidth()
                     .then(
                         if (isEditing) {
-                            // 编辑模式下整张卡片都能拖动换位，不再挂 combinedClickable，
-                            // 否则点击手势会先吞掉拖拽。
-                            // sortMode（点过底部「排序」）时不需要再长按，直接按下滑动即可。
-                            Modifier.pointerInput(module.id, dragOnPress) {
-                                if (dragOnPress) {
-                                    detectDragGestures(
-                                        onDragStart = { onDragStart() },
-                                        onDrag = { change, amount ->
-                                            change.consume()
-                                            onDrag(amount.y)
-                                        },
-                                        onDragEnd = { onDragEnd() },
-                                        onDragCancel = { onDragEnd() }
-                                    )
-                                } else {
+                            // 编辑模式：卡片内部处理点击(勾选)与长按拖动；
+                            // 右侧把手另有自己的无长按拖拽手势（见下方图标）。
+                            Modifier
+                                .pointerInput(module.id) {
                                     detectDragGesturesAfterLongPress(
                                         onDragStart = { onDragStart() },
                                         onDrag = { change, amount ->
@@ -972,7 +893,10 @@ private fun ModuleItem(
                                         onDragCancel = { onDragEnd() }
                                     )
                                 }
-                            }
+                                .clickable {
+                                    // 编辑模式下点卡片＝勾选，不再打开模块
+                                    onClick(module)
+                                }
                         } else {
                             Modifier.combinedClickable(
                                 onClick = { onClick(module) },
@@ -1054,36 +978,53 @@ private fun ModuleItem(
                         }
 
                         if (isEditing) {
-                            // 编辑模式：开关位置换成抓手。抓手本身就是拖拽把手——
-                            // 直接按住它上下拖动即可换位，不需要先点一下、也不需要再长按。
-                            Box(
-                                modifier = Modifier
-                                    .padding(end = if (compact) 4.dp else 8.dp)
-                                    .size(dimens.iconButton)
-                                    .clip(RoundedCornerShape(percent = 50))
-                                    .pointerInput(module.id) {
-                                        detectDragGestures(
-                                            onDragStart = { onDragStart() },
-                                            onDrag = { change, amount ->
-                                                change.consume()
-                                                onDrag(amount.y)
-                                            },
-                                            onDragEnd = { onDragEnd() },
-                                            onDragCancel = { onDragEnd() }
-                                        )
-                                    },
-                                contentAlignment = Alignment.Center
+                            // 编辑模式右侧：上移 / 下移 / 拖动把手。
+                            // 上移下移每次只动一格，状态简单、点一下必然生效；
+                            // 把手是连续拖动的额外便利。
+                            Row(
+                                modifier = Modifier.padding(end = if (compact) 2.dp else 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Filled.DragHandle,
-                                    contentDescription = stringResource(R.string.apm_drag_handle),
-                                    modifier = Modifier.size(dimens.handleSize),
-                                    tint = when {
-                                        isDragging -> MaterialTheme.colorScheme.primary
-                                        dragOnPress -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
-                                    }
-                                )
+                                Column {
+                                    MiniArrowButton(
+                                        up = true,
+                                        size = dimens.iconButton,
+                                        iconSize = dimens.iconSize,
+                                        onClick = onMoveUp
+                                    )
+                                    MiniArrowButton(
+                                        up = false,
+                                        size = dimens.iconButton,
+                                        iconSize = dimens.iconSize,
+                                        onClick = onMoveDown
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(dimens.iconButton)
+                                        .clip(RoundedCornerShape(percent = 50))
+                                        .pointerInput(module.id) {
+                                            // 把手：按住即可拖，无需长按
+                                            detectDragGestures(
+                                                onDragStart = { onDragStart() },
+                                                onDrag = { change, amount ->
+                                                    change.consume()
+                                                    onDrag(amount.y)
+                                                },
+                                                onDragEnd = { onDragEnd() },
+                                                onDragCancel = { onDragEnd() }
+                                            )
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.DragHandle,
+                                        contentDescription = stringResource(R.string.apm_drag_handle),
+                                        modifier = Modifier.size(dimens.handleSize),
+                                        tint = if (isDragging) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                                    )
+                                }
                             }
                         } else {
                             if (compact) {
@@ -1214,6 +1155,34 @@ private fun ModuleItem(
                 }
             }
         }
+    }
+}
+
+/**
+ * 编辑模式下的极小上/下移按钮：只画一个箭头，点一下动一格。
+ */
+@Composable
+private fun MiniArrowButton(
+    up: Boolean,
+    size: Dp,
+    iconSize: Dp,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = if (up) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+            contentDescription = stringResource(
+                if (up) R.string.apm_move_up else R.string.apm_move_down
+            ),
+            modifier = Modifier.size(iconSize),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
