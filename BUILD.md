@@ -59,3 +59,31 @@ unzip -j base.apk 'lib/arm64-v8a/*.so' -d app/libs/arm64-v8a/
 然后在 `app/build.gradle.kts` 中临时注释 `externalNativeBuild`、`ndkVersion`，
 并删掉 `mergeDebugJniLibFolders/mergeReleaseJniLibFolders dependsOn buildApd` 的绑定，
 再执行 `assembleDebug`。产物功能与官方一致，只是签名不同（安装前需卸载官方管理器）。
+
+## 4. 签名（二开出包）
+
+release 包用自有密钥，口令不入库：
+
+| 项 | 值 |
+| --- | --- |
+| 密钥 | `apatch-apm-enhance.jks`（PKCS12，RSA 4096，100 年） |
+| alias | `apatch-enhance` |
+| 规范备份 | `projects/apktools/apatch-apm-enhance.jks` |
+| 本机副本 | `dist/signing/apatch-apm-enhance.jks`（gitignore） |
+| 口令与别名 | 本机 `signing.properties`（gitignore，由根 `build.gradle.kts` 注入） |
+
+启动时的签名校验（`APatchApp.SIGNATURE_HASHES`）同时放行官方签名与本机二开签名，
+所以 release 包不需要 `BuildConfig.DEBUG` 也能正常启动。换密钥时必须同步改
+`SIGNATURE_HASHES`，否则 App 启动即弹卸载框。
+
+```bash
+# 重新生成（口令、alias 需与 signing.properties 一致）
+keytool -genkeypair -v -keystore dist/signing/apatch-apm-enhance.jks \
+  -alias apatch-enhance -keyalg RSA -keysize 4096 -validity 36500 \
+  -storetype PKCS12 -storepass '<口令>' -keypass '<口令>' \
+  -dname 'CN=apatch-apm-enhance, OU=Personal Build, O=apatch-apm-enhance, L=Local, ST=Local, C=CN'
+# 证书 DER 的 SHA-256 → Base64，即 SIGNATURE_HASHES 里那一串
+keytool -exportcert -alias apatch-enhance -keystore dist/signing/apatch-apm-enhance.jks \
+  -storepass '<口令>' -file /tmp/apm.crt
+python3 -c "import hashlib,base64;print(base64.b64encode(hashlib.sha256(open('/tmp/apm.crt','rb').read()).digest()).decode())"
+```

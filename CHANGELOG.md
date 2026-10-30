@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## [二开 2] - 2026-10-30
+
+在二开 1 基础上按使用反馈重做交互与布局。
+
+### 修改：紧凑布局（不再删除描述）
+
+- 版式与内容完全保留（标题、版本/作者、**描述**、操作按钮都在），只压几何尺寸：
+  卡片内边距 16→8dp、卡片间距 16→6dp、圆角 20→10dp、操作行留白 8→0dp、
+  按钮高度 40→28dp、分隔线 1.5→1dp、描述字号 `bodySmall`→`labelSmall`。
+- 开关在紧凑模式下换成 36×20dp 的自绘瘦身开关（Material3 的 Switch 最小宽度约 52dp）。
+- 尺寸集中在 `ApmCardDimens` 一处定义，两种模式只差这一张表。
+
+### 修改：长按 = 直接拖拽排序，不再弹菜单
+
+- 长按卡片任意处出现触感反馈并进入拖拽，拖动即实时换位，松手后把当前可见顺序落成「自定义顺序」。
+- 拖拽中该卡片的开关位置换成抓手图标，既提示可排队也不误触。
+- **置顶改成常驻图钉**：标题区钉形图标，单击即置顶/取消，钉住后填充主题色。
+- 删除长按菜单里的上移/下移/重置项；排序重置由顶栏排序菜单的「自定义顺序」重选与
+  `resetCustomOrder` 兜底（顶栏仍保留四种排序模式）。
+
+### 新增：自有 release 签名
+
+- 生成 `apatch-apm-enhance.jks`（PKCS12，RSA 4096，有效期 100 年，alias `apatch-enhance`），
+  项目内副本在 `dist/signing/`（gitignore），**规范目录备份在 `projects/apktools/`**。
+- `APatchApp` 的启动签名校验改为白名单：官方签名 + 本机二开签名都允许运行，
+  不再依赖 `BuildConfig.DEBUG` 绕过（release 包也能正常启动）。
+- 签名口令放在不入库的 `signing.properties`，由根 `build.gradle.kts` 读入后交给
+  `apksign` 插件；文件缺失时自动回落 debug 签名。
+
+### 产物
+
+`dist/apm-search-pin-sort-compact-release.apk`（5.7 MB，`versionCode 11148` /
+`versionName 02c034a`，R8 混淆 release，自有签名）。
+
 ## [二开 1] - 2026-10-30
 
 基线：上游 `bmax121/APatch@166daa0`（versionCode 11142，942 个提交，2025-11-12）。
