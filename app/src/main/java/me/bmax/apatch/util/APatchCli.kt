@@ -379,13 +379,33 @@ private fun validateSignature(signatureBytes: ByteArray?, validSignature: String
     return signatureHash == validSignature
 }
 
+/**
+ * 校验本机安装包签名是否在 [validSignature] 白名单内。
+ *
+ * 注意：不要用 `&&` 组合两个来源。历史实现在只有 v2/v3 签名（没有
+ * META-INF 下的 .RSA 文件）的包上，[signatureFromAPK] 必然返回 null，
+ * 用 `&&` 会让整条校验恒为 false，release 包启动后立即 exitProcess(0)，
+ * 表现为进程每百毫秒自杀重启、屏幕持续闪烁。
+ * 这里改成「任一来源命中即通过」，并且两个来源都拿不到时才判失败。
+ */
 fun verifyAppSignature(validSignature: String): Boolean {
     val context = apApp.applicationContext
     val apkSignature = signatureFromAPK(context)
     val apiSignature = signatureFromAPI(context)
 
-    return validateSignature(apiSignature, validSignature) && validateSignature(
-        apkSignature,
-        validSignature
-    )
+    // v2/v3-only 包在 META-INF 里没有 .RSA，signatureFromAPK 为 null，此时用 API 结果
+    val effective = apkSignature ?: apiSignature ?: return false
+    val ok = validateSignature(effective, validSignature)
+
+    if (!ok) {
+        Log.w(
+            TAG,
+            "signature mismatch: apk=${apkSignature?.let { hashOf(it) }} " +
+                "api=${apiSignature?.let { hashOf(it) }} expected=$validSignature"
+        )
+    }
+    return ok
 }
+
+private fun hashOf(bytes: ByteArray): String =
+    Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(bytes), Base64.NO_WRAP)

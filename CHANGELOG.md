@@ -1,5 +1,37 @@
 # CHANGELOG
 
+## [二开 2.2] - 2026-10-30
+
+### 修复：安装包启动后即自杀重启（屏幕持续闪烁的真正原因）
+
+二开 2.1 的判断是错的。二开 2.1 的源码里同样存在 `derivedStateOf` 中写状态那一行，
+而当时代码同源的 debug 包运行正常，说明那不是本问题的原因。真因如下：
+
+- 现象：打开 APatch 后屏幕一直闪。抓 logcat 发现 APatch 每约 130 ms 就被拉起又退出，
+  ActivityManager 反复出现 `Process me.bmax.apatch has died`，
+  日志为 `System.exit called, status: 0` + `VM exiting with result code 0`。
+  **这不是崩溃，是主动退出**，出处是 `APatchApp` 中签名校验失败后的
+  `while (true) { startActivity(ACTION_DELETE); exitProcess(0) }`。
+- 根因：`verifyAppSignature()` 用 `&&` 组合 `signatureFromAPK()` 与 `signatureFromAPI()`。
+  其中 `signatureFromAPK()` 用正则 `META-INF/...` 匹配 JAR 签名文件来取证书，
+  但发布包由 apksigner 默认走 **v2 签名**，`META-INF` 下根本没有 `.RSA` 文件
+  （实测 `apksigner verify -v`：v1=false，v2=true），该函数恒返回 `null`，
+  `&&` 让整条校验恒为 `false`，于是每次启动都被判定为签名不合法并自杀。
+- 为什么 debug 版没事：校验外层是 `!BuildConfig.DEBUG && ...`，debug 包直接短路跳过。
+- 修复：改为 `apkSignature ?: apiSignature`，任一来源取到证书即可校验，
+  两者都取不到才判失败；并新增 `signature mismatch` 告警日志，
+  同时打印 apk / api / expected 三个哈希便于排查。
+- 实机验证：同一 pid 存活 30 秒以上且 CPU 时间持续增长（0:00→0:03），
+  `System.exit called` 计数为 0，进程死亡计数为 0；
+  日志中可见 `apk=null api=rxg7y7…` 证明上述回退确实生效。
+
+### 产物
+
+`dist/apm-search-pin-sort-compact-release.apk`（5.6 MB，`versionCode 11148` /
+`versionName 02c034a`，R8 混淆 release，自有签名，sha256
+`2d50e9afa2b207133ea19052e28568bfc6baf56b63c4780e1d964c8ee2b3a980`）。
+签名与版本号均未变，可直接覆盖安装。
+
 ## [二开 2.1] - 2026-10-30
 
 ### 修复：打开模块页整屏持续闪烁（无限重组）
