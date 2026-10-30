@@ -695,17 +695,24 @@ private fun ModuleList(
         dragOffset += deltaY
         val layout = state.layoutInfo
         val dragged = layout.visibleItemsInfo.firstOrNull { it.key == id } ?: return
-        val center = dragged.offset + dragged.size / 2f + dragOffset
+        // 用被拖卡片顶边 + 位移判断它落到哪一格。
+        // 注意：命中目标后数据会立刻重排，布局在下一次测量前仍是旧的，
+        // 因此这里先用「目标当前顶边 - 被拖卡片当前顶边」做等量反向补偿，
+        // 让卡片在手指下面保持贴合，不会因为换位而跳动。
+        val top = dragged.offset + dragOffset
+        val center = top + dragged.size / 2f
         val target = layout.visibleItemsInfo.firstOrNull {
-            center >= it.offset && center <= it.offset + it.size
+            it.key != id && center >= it.offset && center <= it.offset + it.size
         } ?: return
-        if (target.key == id) return
         val list = viewModel.moduleList
         val from = list.indexOfFirst { it.id == id }
         val to = list.indexOfFirst { it.id == target.key }
         if (from < 0 || to < 0 || from == to) return
+        val shift = (target.offset - dragged.offset).toFloat()
+        // 先补偿再改数据：改数据会触发重组，布局随后才更新
+        dragOffset -= shift
         viewModel.moveModule(id, to - from)
-        dragOffset -= (target.offset - dragged.offset).toFloat()
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
     fun endDrag() {
@@ -1012,14 +1019,24 @@ private fun ModuleItem(
                         }
 
                         if (isEditing) {
-                            // 编辑模式：开关位置换成抓手。点一下切换「按住即拖」，
-                            // 拖拽中高亮，作为"这张卡可以滑动排序"的提示。
+                            // 编辑模式：开关位置换成抓手。抓手本身就是拖拽把手——
+                            // 直接按住它上下拖动即可换位，不需要先点一下、也不需要再长按。
                             Box(
                                 modifier = Modifier
                                     .padding(end = if (compact) 4.dp else 8.dp)
                                     .size(dimens.iconButton)
                                     .clip(RoundedCornerShape(percent = 50))
-                                    .clickable { onSortToggle() },
+                                    .pointerInput(module.id) {
+                                        detectDragGestures(
+                                            onDragStart = { onDragStart() },
+                                            onDrag = { change, amount ->
+                                                change.consume()
+                                                onDrag(amount.y)
+                                            },
+                                            onDragEnd = { onDragEnd() },
+                                            onDragCancel = { onDragEnd() }
+                                        )
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1029,7 +1046,7 @@ private fun ModuleItem(
                                     tint = when {
                                         isDragging -> MaterialTheme.colorScheme.primary
                                         dragOnPress -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                                     }
                                 )
                             }

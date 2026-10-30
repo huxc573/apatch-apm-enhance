@@ -110,7 +110,7 @@
     <string name="apm_drag_handle">拖动排序</string>
     <string name="apm_selected_count">已选 %1$d 项</string>
     <string name="apm_sort_handle">排序</string>
-    <string name="apm_sort_hint">按住卡片上下拖动即可调整顺序</string>
+    <string name="apm_sort_hint">直接拖动右侧把手，或按住卡片上下拖动</string>
     <string name="apm_select_all">全选</string>
     <string name="apm_clear_selection">清空</string>
     <string name="apm_pin_selected">置顶</string>

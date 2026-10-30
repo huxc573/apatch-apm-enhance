@@ -180,7 +180,7 @@
     <string name="apm_drag_handle">Drag to reorder</string>
     <string name="apm_selected_count">Selected: %1$d</string>
     <string name="apm_sort_handle">Reorder</string>
-    <string name="apm_sort_hint">Drag a card up or down to reorder</string>
+    <string name="apm_sort_hint">Drag the handle, or hold a card, to reorder</string>
     <string name="apm_select_all">Select all</string>
     <string name="apm_clear_selection">Clear</string>
     <string name="apm_pin_selected">Pin</string>
