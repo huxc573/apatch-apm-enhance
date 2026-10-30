@@ -35,5 +35,4 @@
 - 未改 native、未改 apd、未改模块安装/卸载逻辑，与上游行为一致。
 - 另用官方 APK 的 `lib/arm64-v8a/*.so` 走预编译库路线出过一版 debug 包
   （`assembleDebug`，25 MB，debug 签名，versionCode 11142）：仅用于装机前验证，
-  签名与官方不同，覆盖安装需先卸载官方管理器。产物不入库，放在
-  `Eta/archive/apatch-apm-enhance/`。
+  签名与官方不同，覆盖安装需先卸载官方管理器。产物放在仓库内 `dist/`，已 gitignore，不入库。

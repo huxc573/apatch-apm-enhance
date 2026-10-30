@@ -101,7 +101,7 @@ $ git log -1 --format='%H %ad %s' 166daa0
   `aapt2`/`aidl`；资源编译、KSP（compose-destinations）、Kotlin 编译全部通过。
 - 出包验证：用同版本官方 APK 的 `lib/arm64-v8a/*.so` 走预编译库路线执行 `assembleDebug`，
   产物 `APatch_11142_166daa0_apm-enhance-debug.apk`（25,173,866 字节，debug 签名），
-  存放于 `Eta/archive/apatch-apm-enhance/`，不入库。
+  放在仓库内 `dist/`，已 gitignore，不入库。
 - 产物核对：`aapt2 dump badging` 为 `versionCode=11142 / versionName=166daa0`；
   `aapt2 dump resources` 已包含 `apm_search`、`apm_pin`、`apm_move_up`、`apm_sort_custom`、
   `apm_compact` 等新增文案（中英双语），确认改动已打进 APK。
