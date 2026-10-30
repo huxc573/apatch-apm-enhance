@@ -107,6 +107,7 @@
     <string name="apm_move_up">上移</string>
     <string name="apm_move_down">下移</string>
     <string name="apm_compact">紧凑布局</string>
+    <string name="apm_drag_handle">拖动排序</string>
     <string name="apm_sort_reset">重置排序与置顶</string>
     <string name="system_default">系统默认</string>
     <string name="settings_app_language">语言</string>

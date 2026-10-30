@@ -11,6 +11,14 @@ plugins {
 
 project.ext.set("kernelPatchVersion", "0.12.2")
 
+// 二开 release 签名：口令不进版本库，从本机 signing.properties 读，缺失时交给 apksign 插件回落到 debug 签名
+val localSigningFile = rootProject.file("signing.properties")
+if (localSigningFile.exists()) {
+    java.util.Properties().apply {
+        localSigningFile.inputStream().use { load(it) }
+    }.forEach { (key, value) -> project.ext.set(key.toString(), value) }
+}
+
 val androidMinSdkVersion = 26
 val androidTargetSdkVersion = 36
 val androidCompileSdkVersion = 36

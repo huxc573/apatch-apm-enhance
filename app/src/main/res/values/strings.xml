@@ -177,6 +177,7 @@
     <string name="apm_move_up">Move up</string>
     <string name="apm_move_down">Move down</string>
     <string name="apm_compact">Compact layout</string>
+    <string name="apm_drag_handle">Drag to reorder</string>
     <string name="apm_sort_reset">Reset order and pins</string>
 
     <string name="hide_apatch_manager">Hide APatch Manager</string>

@@ -155,6 +155,20 @@ class APModuleViewModel : ViewModel() {
         APModuleUiPrefs.saveSortMode(APModuleSortMode.CUSTOM)
     }
 
+    /**
+     * 按当前可见顺序重排：长按拖拽直接把整段可见顺序落成自定义顺序。
+     * 与 [moveModule] 的区别是列表各段之间不残留历史位置，拖完之后下一次拖拽行为可预期。
+     */
+    fun updateCustomOrderFromVisible(visibleIds: List<String>) {
+        if (visibleIds.isEmpty()) return
+        customOrder = visibleIds
+        if (sortMode != APModuleSortMode.CUSTOM) {
+            sortMode = APModuleSortMode.CUSTOM
+            APModuleUiPrefs.saveSortMode(APModuleSortMode.CUSTOM)
+        }
+        APModuleUiPrefs.saveCustomOrder(visibleIds)
+    }
+
     fun resetCustomOrder() {
         customOrder = emptyList()
         APModuleUiPrefs.saveCustomOrder(emptyList())

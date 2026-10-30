@@ -49,6 +49,12 @@ class APApplication : Application(), Thread.UncaughtExceptionHandler {
     companion object {
         const val APD_PATH = "/data/adb/apd"
 
+        /** 允许运行的签名白名单（证书 DER 的 SHA-256，Base64）。 */
+        private val SIGNATURE_HASHES = arrayOf(
+            "1x2twMoHvfWUODv7KkRRNKBzOfEqJwRKGzJpgaz18xk=", // 上游官方
+            "rxg7yY7wlwsibbjFEnqtwHW8ZPU8DkrZ7EDDAbk1YD8=", // 本机二开
+        )
+
         @Deprecated("No more KPatch ELF from 0.11.0-dev")
         const val KPATCH_PATH = "/data/adb/kpatch"
         const val SUPERCMD = "/system/bin/truncate"
@@ -256,7 +262,8 @@ class APApplication : Application(), Thread.UncaughtExceptionHandler {
             exitProcess(0)
         }
 
-        if (!BuildConfig.DEBUG && !verifyAppSignature("1x2twMoHvfWUODv7KkRRNKBzOfEqJwRKGzJpgaz18xk=")) {
+        // 上游官方签名 + 本机二开签名（apktools 规范目录下的 apatch-apm-enhance.jks）都允许运行
+        if (!BuildConfig.DEBUG && SIGNATURE_HASHES.none { verifyAppSignature(it) }) {
             while (true) {
                 val intent = Intent(Intent.ACTION_DELETE)
                 intent.data = "package:$packageName".toUri()
