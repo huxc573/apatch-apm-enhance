@@ -10,8 +10,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.ReorderableCollectionItemScope // 提供 longPressDraggableHandle 扩展
+import sh.calvin.reorderable.rememberReorderableLazyListState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -37,8 +39,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
@@ -76,6 +76,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -98,7 +99,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ramcosta.composedestinations.annotation.Destination
@@ -455,6 +455,12 @@ private fun EditModeBar(
         tonalElevation = 3.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text(
+                text = stringResource(R.string.apm_drag_hint),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -638,65 +644,18 @@ private fun ModuleList(
     val searchQuery = viewModel.searchQuery
     val dimens = remember(compact) { ApmCardDimens(compact) }
 
-    // ---- 拖拽排序状态 ----
-    // 只保存"手指累计位移"。卡片实际画在：当前槽位 + 位移，位移由列表真实布局得出，
-    // 不在代码里自己累加槽位，避免和 LazyColumn 的布局打架。
-    var draggingId by remember { mutableStateOf<String?>(null) }
-    var dragDelta by remember { mutableFloatStateOf(0f) }
+    // ---- 拖拽排序 ----
+    // 不再自己实现手势/影子顺序/自动滚动，直接用 Calvin Liang 的 Reorderable
+    // （Apache-2.0，gkd / Mihon / Lawnchair / Home Assistant 等项目在用）。
+    // 它内部按「被拖卡片矩形是否压到目标卡片中心」判定换位，并用 Mutex + snapshotFlow
+    // 等布局更新完再算下一格，所以不会出现跳位、乱滚、松手回弹这些自制版本的毛病。
+    // 我们只负责在 onMove 里给出新的 id 顺序，并持久化成 CUSTOM 排序。
     val haptics = LocalHapticFeedback.current
+    val reorderIds = viewModel.moduleList.map { it.id }
 
-    fun startDrag(id: String) {
-        draggingId = id
-        dragDelta = 0f
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-    }
-
-    fun dragBy(deltaY: Float) {
-        val id = draggingId ?: return
-        dragDelta += deltaY
-
-        val info = state.layoutInfo
-        val dragged = info.visibleItemsInfo.firstOrNull { it.key == id } ?: return
-
-        // 卡片当前视觉顶端 = 它的真实槽位 + 手指位移
-        val visualTop = dragged.offset + dragDelta
-        val visualCenter = visualTop + dragged.size / 2f
-
-        val list = viewModel.moduleList
-        val from = list.indexOfFirst { it.id == id }
-        if (from < 0) return
-
-        // 收集"其它可见卡片"：带上它们在列表里的绝对索引
-        val others = info.visibleItemsInfo
-            .filter { it.key != id }
-            .mapNotNull { vi ->
-                val li = list.indexOfFirst { it.id == vi.key }
-                if (li >= 0) Triple(li, vi.offset, vi.size) else null
-            }
-            .sortedBy { it.second }
-        if (others.isEmpty()) return
-
-        // 目标位置：中心点落在哪张其它卡片身上，就插到它的位置。
-        // 中心点在所有其它卡片之上 -> 插到最前面那张之前；在之下 -> 插到最后那张之后。
-        val hit = others.firstOrNull { visualCenter >= it.second && visualCenter <= it.second + it.third }
-        val target = when {
-            hit != null -> hit.first
-            visualCenter < others.first().second -> others.first().first
-            else -> others.last().first
-        }
-        if (target == from) return
-
-        // 位移折抵：卡片在新位置的槽位与旧位置之差，抵掉后它仍停在手指下
-        val targetSlot = others.firstOrNull { it.first == target }?.second
-        if (targetSlot != null) dragDelta += dragged.offset - targetSlot
-
-        viewModel.moveModuleTo(id, target)
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-    }
-
-    fun endDrag() {
-        draggingId = null
-        dragDelta = 0f
+    val reorderState = rememberReorderableLazyListState(state) { from, to ->
+        viewModel.moveModuleByIds(from.key as String, to.index, reorderIds)
+        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
 
     PullToRefreshBox(
@@ -735,8 +694,7 @@ private fun ModuleList(
                 }
 
                 else -> {
-                    val visible = viewModel.moduleList
-                    items(visible, key = { it.id }) { module ->
+                    items(viewModel.moduleList, key = { it.id }) { module ->
                         var isChecked by rememberSaveable(module) { mutableStateOf(module.enabled) }
                         val scope = rememberCoroutineScope()
                         val updatedModule by produceState(initialValue = Triple("", "", "")) {
@@ -744,92 +702,96 @@ private fun ModuleList(
                                 value = viewModel.checkUpdate(module)
                             }
                         }
-                        val isDragging = draggingId == module.id
 
-                        ModuleItem(
-                            navigator,
-                            module,
-                            isChecked,
-                            updatedModule.first,
-                            pinned = viewModel.isPinned(module.id),
-                            dimens = dimens,
-                            isDragging = isDragging,
-                            isEditing = editMode,
-                            editChecked = module.id in checkedIds,
-                            onEditCheckedChange = { onCheckedChange(module.id, it) },
-                            onTogglePin = { viewModel.togglePin(module.id) },
-                            onMoveUp = { viewModel.moveModule(module.id, -1) },
-                            onMoveDown = { viewModel.moveModule(module.id, 1) },
-                            onEnterEditMode = onEnterEditMode,
-                            onDragStart = { startDrag(module.id) },
-                            onDrag = { dragBy(it) },
-                            onDragEnd = { endDrag() },
-                            onUninstall = {
-                                scope.launch { onModuleUninstall(module) }
-                            },
-                            onCheckChanged = {
-                                scope.launch {
-                                    val success = loadingDialog.withLoading {
-                                        withContext(Dispatchers.IO) {
-                                            toggleModule(module.id, !isChecked)
+                        // 编辑模式下才允许拖动；非编辑态用库开关保证拖动完全不触发
+                        ReorderableItem(
+                            state = reorderState,
+                            key = module.id,
+                            enabled = editMode,
+                        ) { isDragging ->
+                            // longPressDraggableHandle 是 ReorderableItem 作用域里的扩展，
+                            // 所以必须在这里（而不是 ModuleItem 内部）挂到卡片 Modifier 上。
+                            val dragModifier = if (editMode) {
+                                Modifier.longPressDraggableHandle(
+                                    enabled = true,
+                                    onDragStarted = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    },
+                                    onDragStopped = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    },
+                                )
+                            } else {
+                                Modifier
+                            }
+
+                            ModuleItem(
+                                navigator,
+                                module,
+                                isChecked,
+                                updatedModule.first,
+                                pinned = viewModel.isPinned(module.id),
+                                dimens = dimens,
+                                isDragging = isDragging,
+                                isEditing = editMode,
+                                editChecked = module.id in checkedIds,
+                                dragEnabled = editMode,
+                                onEditCheckedChange = { onCheckedChange(module.id, it) },
+                                onTogglePin = { viewModel.togglePin(module.id) },
+                                onEnterEditMode = onEnterEditMode,
+                                onUninstall = {
+                                    scope.launch { onModuleUninstall(module) }
+                                },
+                                onCheckChanged = {
+                                    scope.launch {
+                                        val success = loadingDialog.withLoading {
+                                            withContext(Dispatchers.IO) {
+                                                toggleModule(module.id, !isChecked)
+                                            }
+                                        }
+                                        if (success) {
+                                            isChecked = it
+                                            viewModel.fetchModuleList()
+
+                                            val result = snackBarHost.showSnackbar(
+                                                message = rebootToApply,
+                                                actionLabel = reboot,
+                                                duration = SnackbarDuration.Long
+                                            )
+                                            if (result == SnackbarResult.ActionPerformed) {
+                                                reboot()
+                                            }
+                                        } else {
+                                            val message = if (isChecked) failedDisable else failedEnable
+                                            snackBarHost.showSnackbar(message.format(module.name))
                                         }
                                     }
-                                    if (success) {
-                                        isChecked = it
-                                        viewModel.fetchModuleList()
-
-                                        val result = snackBarHost.showSnackbar(
-                                            message = rebootToApply,
-                                            actionLabel = reboot,
-                                            duration = SnackbarDuration.Long
+                                },
+                                onUpdate = {
+                                    scope.launch {
+                                        onModuleUpdate(
+                                            module,
+                                            updatedModule.third,
+                                            updatedModule.first,
+                                            "${module.name}-${updatedModule.second}.zip"
                                         )
-                                        if (result == SnackbarResult.ActionPerformed) {
-                                            reboot()
-                                        }
+                                    }
+                                },
+                                onClick = {
+                                    // 编辑模式下点击卡片＝勾选，不再打开模块
+                                    if (editMode) {
+                                        onCheckedChange(module.id, module.id !in checkedIds)
                                     } else {
-                                        val message = if (isChecked) failedDisable else failedEnable
-                                        snackBarHost.showSnackbar(message.format(module.name))
+                                        onClickModule(it.id, it.name, it.hasWebUi)
                                     }
-                                }
-                            },
-                            onUpdate = {
-                                scope.launch {
-                                    onModuleUpdate(
-                                        module,
-                                        updatedModule.third,
-                                        updatedModule.first,
-                                        "${module.name}-${updatedModule.second}.zip"
-                                    )
-                                }
-                            },
-                            onClick = {
-                                // 编辑模式下点击卡片＝勾选，不再打开模块
-                                if (editMode) {
-                                    onCheckedChange(module.id, module.id !in checkedIds)
-                                } else {
-                                    onClickModule(it.id, it.name, it.hasWebUi)
-                                }
-                            },
-                            modifier = Modifier
-                                .zIndex(if (isDragging) 1f else 0f)
-                                .graphicsLayer {
-                                    if (isDragging) {
-                                        translationY = dragDelta
-                                        scaleX = 1.03f
-                                        scaleY = 1.03f
-                                        alpha = 0.97f
-                                        shadowElevation = 16f
-                                    }
-                                })
-
-                        // fix last item shadow incomplete in LazyColumn
-                        Spacer(Modifier.height(1.dp))
+                                },
+                                modifier = dragModifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }
         }
-
-        DownloadListener(context, onInstallModule)
     }
 }
 
@@ -845,14 +807,10 @@ private fun ModuleItem(
     isDragging: Boolean,
     isEditing: Boolean = false,
     editChecked: Boolean = false,
+    dragEnabled: Boolean = false,
     onEditCheckedChange: (Boolean) -> Unit = {},
     onTogglePin: () -> Unit,
-    onMoveUp: () -> Unit = {},
-    onMoveDown: () -> Unit = {},
     onEnterEditMode: () -> Unit = {},
-    onDragStart: () -> Unit = {},
-    onDrag: (Float) -> Unit = {},
-    onDragEnd: () -> Unit = {},
     onUninstall: (APModuleViewModel.ModuleInfo) -> Unit,
     onCheckChanged: (Boolean) -> Unit,
     onUpdate: (APModuleViewModel.ModuleInfo) -> Unit,
@@ -867,7 +825,7 @@ private fun ModuleItem(
     val compact = dimens.compact
 
     Surface(
-        modifier = modifier,
+        modifier = modifier.alpha(alpha),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = if (compact) 0.dp else 1.dp,
         shape = RoundedCornerShape(dimens.corner)
@@ -879,24 +837,11 @@ private fun ModuleItem(
                     .fillMaxWidth()
                     .then(
                         if (isEditing) {
-                            // 编辑模式：卡片内部处理点击(勾选)与长按拖动；
-                            // 右侧把手另有自己的无长按拖拽手势（见下方图标）。
-                            Modifier
-                                .pointerInput(module.id) {
-                                    detectDragGesturesAfterLongPress(
-                                        onDragStart = { onDragStart() },
-                                        onDrag = { change, amount ->
-                                            change.consume()
-                                            onDrag(amount.y)
-                                        },
-                                        onDragEnd = { onDragEnd() },
-                                        onDragCancel = { onDragEnd() }
-                                    )
-                                }
-                                .clickable {
-                                    // 编辑模式下点卡片＝勾选，不再打开模块
-                                    onClick(module)
-                                }
+                            // 编辑模式：单击＝勾选。拖动由外层 Modifier.longPressDraggableHandle
+                            // 交给 Reorderable 处理，这里不再自己拦手势，避免两套拖动互相抢事件。
+                            Modifier.pointerInput(module.id) {
+                                detectTapGestures(onTap = { onClick(module) })
+                            }
                         } else {
                             Modifier.combinedClickable(
                                 onClick = { onClick(module) },
@@ -978,53 +923,20 @@ private fun ModuleItem(
                         }
 
                         if (isEditing) {
-                            // 编辑模式右侧：上移 / 下移 / 拖动把手。
-                            // 上移下移每次只动一格，状态简单、点一下必然生效；
-                            // 把手是连续拖动的额外便利。
-                            Row(
-                                modifier = Modifier.padding(end = if (compact) 2.dp else 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            // 编辑模式右侧：拖动把手（视觉提示，整张卡片都能拖，见上方手势）。
+                            Box(
+                                modifier = Modifier
+                                    .padding(end = if (compact) 2.dp else 6.dp)
+                                    .size(dimens.iconButton),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Column {
-                                    MiniArrowButton(
-                                        up = true,
-                                        size = dimens.iconButton,
-                                        iconSize = dimens.iconSize,
-                                        onClick = onMoveUp
-                                    )
-                                    MiniArrowButton(
-                                        up = false,
-                                        size = dimens.iconButton,
-                                        iconSize = dimens.iconSize,
-                                        onClick = onMoveDown
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .size(dimens.iconButton)
-                                        .clip(RoundedCornerShape(percent = 50))
-                                        .pointerInput(module.id) {
-                                            // 把手：按住即可拖，无需长按
-                                            detectDragGestures(
-                                                onDragStart = { onDragStart() },
-                                                onDrag = { change, amount ->
-                                                    change.consume()
-                                                    onDrag(amount.y)
-                                                },
-                                                onDragEnd = { onDragEnd() },
-                                                onDragCancel = { onDragEnd() }
-                                            )
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.DragHandle,
-                                        contentDescription = stringResource(R.string.apm_drag_handle),
-                                        modifier = Modifier.size(dimens.handleSize),
-                                        tint = if (isDragging) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Filled.DragHandle,
+                                    contentDescription = stringResource(R.string.apm_drag_handle),
+                                    modifier = Modifier.size(dimens.handleSize),
+                                    tint = if (isDragging) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                                )
                             }
                         } else {
                             if (compact) {
@@ -1155,34 +1067,6 @@ private fun ModuleItem(
                 }
             }
         }
-    }
-}
-
-/**
- * 编辑模式下的极小上/下移按钮：只画一个箭头，点一下动一格。
- */
-@Composable
-private fun MiniArrowButton(
-    up: Boolean,
-    size: Dp,
-    iconSize: Dp,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(6.dp))
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = if (up) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
-            contentDescription = stringResource(
-                if (up) R.string.apm_move_up else R.string.apm_move_down
-            ),
-            modifier = Modifier.size(iconSize),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 

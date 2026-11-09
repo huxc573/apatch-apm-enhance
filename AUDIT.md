@@ -11,7 +11,7 @@
 | versionCode | `11142` |
 | minSdk / targetSdk | 26 / 36 |
 | 安装时间 | 2026-08-04 22:47:34（Google Play 安装） |
-| APK 路径 | `/data/app/~~6zOywZj-M26C05KeS8joIA==/me.bmax.apatch-RZo0oJ6PDpme3j_t-GLPCQ==/base.apk` |
+| APK 路径 | `<设备随机安装路径，已脱敏>` |
 | APK SHA-256 | `1695a51f5741c602fab50f389949e0d356a639708fc97663b0fc8a2a2d47ee81` |
 | APK 大小 | 5,850,198 字节 |
 

@@ -48,6 +48,10 @@ class APModuleViewModel : ViewModel() {
     var isRefreshing by mutableStateOf(false)
         private set
 
+    /** 最近一次刷新的错误信息，供界面提示用；成功的刷新会清空。 */
+    var refreshError by mutableStateOf<String?>(null)
+        private set
+
     var searchQuery by mutableStateOf("")
         private set
 
@@ -174,6 +178,23 @@ class APModuleViewModel : ViewModel() {
         applyOrder(order, from, to)
     }
 
+    /**
+     * 拖拽排序的统一入口：把 [id] 移动到当前可见顺序中的 [targetIndex]。
+     *
+     * 与 [moveModule] 的差别是接受绝对目标位置（Reorderable 给的 to.index），
+     * 并且总是在「当前可见顺序」上重排，搜索态下也只影响可见项的相对次序。
+     */
+    fun moveModuleByIds(id: String, targetIndex: Int, visibleIds: List<String>) {
+        val order = visibleIds.toMutableList()
+        val from = order.indexOf(id)
+        if (from < 0) return
+        val to = targetIndex.coerceIn(0, order.lastIndex)
+        if (from == to) return
+        val item = order.removeAt(from)
+        order.add(to, item)
+        updateCustomOrder(order, includeHidden = visibleIds.size != modules.size)
+    }
+
     /** 把 [id] 直接插到 [targetIndex]（拖拽排序用），语义与 [moveModule] 一致。 */
     fun moveModuleTo(id: String, targetIndex: Int) {
         val order = moduleList.map { it.id }.toMutableList()
@@ -199,13 +220,30 @@ class APModuleViewModel : ViewModel() {
      * 与 [moveModule] 的区别是列表各段之间不残留历史位置，拖完之后下一次拖拽行为可预期。
      */
     fun updateCustomOrderFromVisible(visibleIds: List<String>) {
+        updateCustomOrder(visibleIds, includeHidden = true)
+    }
+
+    /**
+     * 把拖拽得到的可见顺序落盘为自定义顺序。
+     *
+     * 搜索态下可见顺序只是全量的子集，[includeHidden] 为 true 时会按原顺序把
+     * 未出现在可见列表里的模块（被搜索过滤掉的）补回去，避免拖一次就把它们从
+     * 自定义顺序里抹掉、松手后又跳到最后。
+     */
+    fun updateCustomOrder(visibleIds: List<String>, includeHidden: Boolean) {
         if (visibleIds.isEmpty()) return
-        customOrder = visibleIds
+        val merged = if (includeHidden) {
+            val seen = visibleIds.toHashSet()
+            visibleIds + moduleList.map { it.id }.filter { it !in seen }
+        } else {
+            visibleIds
+        }
+        customOrder = merged
         if (sortMode != APModuleSortMode.CUSTOM) {
             sortMode = APModuleSortMode.CUSTOM
             APModuleUiPrefs.saveSortMode(APModuleSortMode.CUSTOM)
         }
-        APModuleUiPrefs.saveCustomOrder(visibleIds)
+        APModuleUiPrefs.saveCustomOrder(merged)
     }
 
     fun resetCustomOrder() {
@@ -221,18 +259,15 @@ class APModuleViewModel : ViewModel() {
     fun fetchModuleList() {
         viewModelScope.launch(Dispatchers.IO) {
             isRefreshing = true
-
-            val oldModuleList = modules
-
+            refreshError = null
             val start = SystemClock.elapsedRealtime()
-
-            kotlin.runCatching {
-
+            try {
                 val result = listModules()
-
                 Log.i(TAG, "result: $result")
 
                 val array = JSONArray(result)
+                // 直接构造新列表赋值；不要再用「新旧引用相同才停转圈」的写法，
+                // 那种写法在列表内容不变时会遗留 isRefreshing=true，下拉刷新圈一直转。
                 modules = (0 until array.length())
                     .asSequence()
                     .map { array.getJSONObject(it) }
@@ -254,18 +289,14 @@ class APModuleViewModel : ViewModel() {
                         )
                     }.toList()
                 isNeedRefresh = false
-            }.onFailure { e ->
+            } catch (e: Exception) {
                 Log.e(TAG, "fetchModuleList: ", e)
+                refreshError = e.message ?: e.javaClass.simpleName
+            } finally {
+                // 无论成功、失败还是取消，都必须结束刷新态
                 isRefreshing = false
+                Log.i(TAG, "load cost: ${SystemClock.elapsedRealtime() - start}, modules: ${modules.size}")
             }
-
-            // when both old and new is kotlin.collections.EmptyList
-            // moduleList update will don't trigger
-            if (oldModuleList === modules) {
-                isRefreshing = false
-            }
-
-            Log.i(TAG, "load cost: ${SystemClock.elapsedRealtime() - start}, modules: $modules")
         }
     }
 

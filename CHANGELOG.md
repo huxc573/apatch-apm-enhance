@@ -204,3 +204,67 @@ versionCode 11142 / versionName 166daa0。
 - 另用官方 APK 的 `lib/arm64-v8a/*.so` 走预编译库路线出过一版 debug 包
   （`assembleDebug`，25 MB，debug 签名，versionCode 11142）：仅用于装机前验证，
   签名与官方不同，覆盖安装需先卸载官方管理器。产物放在仓库内 `dist/`，已 gitignore，不入库。
+
+## 2026-10-31 拖拽排序修复
+
+### 修复
+
+- `APM.kt` `startDrag()` 增加 `editMode` 守卫：非编辑态长按仍会进到
+  `detectDragGesturesAfterLongPress` 的手势流里，原先会把「浏览时手指滑动」
+  误判成拖拽并写坏自定义顺序。
+- `endDrag()` 增加「顺序未变化就跳过」判断，避免一次误触把排序模式切成 CUSTOM；
+  松手落盘时改用新的 `updateCustomOrder(order, includeHidden)`，搜索态下把被
+  过滤掉的模块按原相对位置补回，不再从自定义顺序里被抹掉、松手后跳到末尾。
+- `APModuleViewModel.updateCustomOrderFromVisible` 改为委托
+  `updateCustomOrder(visibleIds, includeHidden = true)`，行为与 UI 一致。
+- 修掉拖拽代码里两处此前无法编译的调用：`state.scrollBy` 缺
+  `androidx.compose.foundation.gestures.scrollBy` 导入，`Dp.roundToPx` 改为
+  `with(density) { ... }`（`LocalDensity.current` 渲染期读取，不在 lambda 外取值）。
+
+### 构建与安装
+
+- `./gradlew :app:assembleRelease`（Debian 容器 `/workspace`，JDK 21 / SDK 36 /
+  NDK 29 预置的 `libs/arm64-v8a/*.so`）**BUILD SUCCESSFUL**。
+- 产物 `dist/apm-drag-sort-fix-release.apk`（5,929,407 字节，本机二开签名），
+  `versionCode=11142 / versionName=166daa0`，已 `pm install -r -d` 覆盖安装并启动，
+  进程存活无崩溃。
+
+## 2026-10-31 排序整体重写（换成成熟库）
+
+### 之前自制拖拽的问题
+
+影子列表 + 手动 translationY + 自算边缘滚动这套实现与 LazyColumn 的布局互相对抗，
+并且每次换位都要我们自己折抵位移，容易出现跳位、乱滚、松手回弹，改动成本高于收益。
+
+### 做法：改用 `sh.calvin.reorderable:reorderable:3.1.0`
+
+- 选型依据：该库被 gkd、Mihon、Lawnchair、Home Assistant、Pocket Casts 等项目使用
+  （README "Used By" 列表），Apache-2.0，专门解决 Compose LazyColumn 拖拽排序。
+- 读了它的实现（`ReorderableLazyCollection.kt`）后按其设计使用：
+  - 换位判定：被拖卡片矩形是否覆盖目标卡片中心（`shouldItemMove`）；
+  - 每次换位后 `onMove` 回调，并 `Mutex` + `snapshotFlow(layoutInfo).take(2)` 等
+    布局真正更新完再算下一格，从根本上避免跳位；
+  - 边缘自动滚动用 `animateScrollBy` + 距离映射速度，且有 `maxScrollDistance` 上限；
+  - 松手用 `Animatable` 把卡片弹回落位，由库负责。
+- `APM.kt`：删除全部自制拖拽代码（`draggingId/dragOrder/dragDelta/autoScroll`、
+  自算 `translationY`、手写 `scrollBy` 循环、`zIndex/graphicsLayer`），改为
+  `rememberReorderableLazyListState` + `ReorderableItem` + 作用域内的
+  `Modifier.longPressDraggableHandle`。
+- `APModuleViewModel` 新增 `moveModuleByIds(id, targetIndex, visibleIds)`：
+  接收库给出的绝对目标位置，统一走 `updateCustomOrder` 落盘；搜索态下保留被隐藏项。
+- 拖拽仅在编辑模式生效（`enabled = editMode`），避免浏览时误改顺序。
+
+### 修掉「一直转圈、没有下拉也在转」
+
+`fetchModuleList()` 原先只在 `oldModuleList === modules` 这种极窄条件下复位
+`isRefreshing`，列表内容没变化或解析中途抛异常时 `isRefreshing` 会永远为 true，
+PullToRefreshBox 的指示器就一直转。现改为 `try/catch/finally`：
+- `finally` 无条件 `isRefreshing = false`；
+- 新增 `refreshError`，把刷新失败原因暴露给界面，而不是静默挂在刷新态。
+
+### 构建与安装
+
+- 新增依赖 `libs.reorderable`（`gradle/libs.versions.toml` + `app/build.gradle.kts`）。
+- `./gradlew :app:assembleRelease` **BUILD SUCCESSFUL**（3m30s，含 R8）。
+- `dist/apm-reorder-rewrite-release.apk`（5,946,783 字节），`pm install -r -d` 成功，
+  启动后进程存活、无 FATAL。

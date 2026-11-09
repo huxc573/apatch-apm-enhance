@@ -280,6 +280,8 @@ dependencies {
 
     implementation(libs.ini4j)
 
+    implementation(libs.reorderable)
+
     compileOnly(libs.cxx)
 }
 

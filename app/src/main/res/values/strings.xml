@@ -178,6 +178,7 @@
     <string name="apm_move_down">Move down</string>
     <string name="apm_compact">Compact layout</string>
     <string name="apm_drag_handle">Drag to reorder</string>
+    <string name="apm_drag_hint">Long-press a card and drag up or down to reorder</string>
     <string name="apm_selected_count">Selected: %1$d</string>
     <string name="apm_select_all">Select all</string>
     <string name="apm_clear_selection">Clear</string>
