@@ -34,8 +34,23 @@ cargo install cargo-ndk
 ```
 
 产物：`app/build/outputs/apk/<variant>/APatch_<versionCode>_<versionName>_on_<branch>.apk`。
-`versionCode/versionName` 由 `git rev-list --count HEAD` 与 `git rev-parse --short HEAD`
-自动计算，二开分支提交后会比 11142 增大，属正常。
+
+二开版本号规则（日期 + 当天序号）：
+
+```text
+versionCode = YYMMDDNN        例如 2026-11-24 第 1 个包 = 26112401
+versionName = vYY.MM.DD_N     例如 v26.11.24_1
+```
+
+根 `build.gradle.kts` 的 `getVersionCode()/getVersionName()` 与 `apd/build.rs` 的
+`VERSION_CODE/VERSION_NAME` 必须同时修改且完全一致，否则 `apd -V` 与管理器版本不等，
+状态会停在 `ANDROIDPATCH_NEED_UPDATE`，底栏「系统模块」入口消失。
+`kernelPatchVersion` / `kpimg` 是另一套版本，只有更换 KernelPatch 时才改；不动它们
+就不会提示重新修补 boot。
+
+> 安装新 APK 后，应用启动时会比较内置 `libapd.so` 与 `/data/adb/apd` 的 SHA-256，
+> 不一致就原子替换并 toast 提示重启。版本号升级和同版本重建都走这条路径，
+> 不需要手动 adb 替换，也不会停在“新版本可升级”。
 
 ## 3. 只做编译检查（不打包、不需要 NDK）
 
@@ -68,9 +83,15 @@ release 包用自有密钥，口令不入库：
 | --- | --- |
 | 密钥 | `apatch-apm-enhance.jks`（PKCS12，RSA 4096，100 年） |
 | alias | `apatch-enhance` |
-| 规范备份 | `projects/apktools/apatch-apm-enhance.jks` |
-| 本机副本 | `dist/signing/apatch-apm-enhance.jks`（gitignore） |
-| 口令与别名 | 本机 `signing.properties`（gitignore，由根 `build.gradle.kts` 注入） |
+| 规范位置 | 本机统一密钥目录下的 `apatch-apm-enhance.jks`（具体路径不入库，见该目录 README） |
+| 配置 | 同目录 `signing.properties`；根 `build.gradle.kts` 优先读 `local.properties` 的 `apatch.signing.properties`（不入库），读不到再回落仓库根 `signing.properties` |
+| 手机侧原件 | 本机 Debian chroot 的 `projects/apatch-apm-enhance`（不入库） |
+
+本机路径写在 `local.properties`（gitignore，不入库）：
+
+```properties
+apatch.signing.properties=<密钥目录>/signing.properties
+```
 
 启动时的签名校验（`APatchApp.SIGNATURE_HASHES`）同时放行官方签名与本机二开签名，
 所以 release 包不需要 `BuildConfig.DEBUG` 也能正常启动。换密钥时必须同步改
@@ -78,12 +99,13 @@ release 包用自有密钥，口令不入库：
 
 ```bash
 # 重新生成（口令、alias 需与 signing.properties 一致）
-keytool -genkeypair -v -keystore dist/signing/apatch-apm-enhance.jks \
+KEYSTORE='<本机密钥目录>/apatch-apm-enhance.jks'
+keytool -genkeypair -v -keystore "$KEYSTORE" \
   -alias apatch-enhance -keyalg RSA -keysize 4096 -validity 36500 \
   -storetype PKCS12 -storepass '<口令>' -keypass '<口令>' \
   -dname 'CN=apatch-apm-enhance, OU=Personal Build, O=apatch-apm-enhance, L=Local, ST=Local, C=CN'
 # 证书 DER 的 SHA-256 → Base64，即 SIGNATURE_HASHES 里那一串
-keytool -exportcert -alias apatch-enhance -keystore dist/signing/apatch-apm-enhance.jks \
-  -storepass '<口令>' -file /tmp/apm.crt
-python3 -c "import hashlib,base64;print(base64.b64encode(hashlib.sha256(open('/tmp/apm.crt','rb').read()).digest()).decode())"
+keytool -exportcert -alias apatch-enhance -keystore "$KEYSTORE" \
+  -storepass '<口令>' -file apm.crt
+python -c "import hashlib,base64;print(base64.b64encode(hashlib.sha256(open('apm.crt','rb').read()).digest()).decode())"
 ```

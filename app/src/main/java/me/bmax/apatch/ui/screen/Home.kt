@@ -572,7 +572,7 @@ private fun KStatusCard(
                     if (kpState != APApplication.State.UNKNOWN_STATE && kpState != APApplication.State.KERNELPATCH_NEED_UPDATE && kpState != APApplication.State.KERNELPATCH_NEED_REBOOT) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "${Version.installedKPVString()} (${managerVersion.second}) - " + if (apState != APApplication.State.ANDROIDPATCH_NOT_INSTALLED) "Full" else "KernelPatch",
+                            text = "${Version.installedKPVString()} (${managerVersion.first}) - " + if (apState != APApplication.State.ANDROIDPATCH_NOT_INSTALLED) "Full" else "KernelPatch",
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
@@ -886,7 +886,7 @@ private fun InfoCard(kpState: APApplication.State, apState: APApplication.State)
 
             if (apState != APApplication.State.UNKNOWN_STATE && apState != APApplication.State.ANDROIDPATCH_NOT_INSTALLED) {
                 InfoCardItem(
-                    stringResource(R.string.home_apatch_version), managerVersion.second.toString()
+                    stringResource(R.string.home_apatch_version), managerVersion.first
                 )
                 Spacer(Modifier.height(16.dp))
             }

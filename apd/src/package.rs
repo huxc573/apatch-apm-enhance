@@ -6,6 +6,11 @@ use std::path::Path;
 use std::thread;
 use std::time::Duration;
 
+/// Android 的 uid 分配是 `userId * 100000 + appId`，所以 user 0 的应用 uid 一定 < 100000。
+/// `/data/system/packages.list` 只包含 user 0 的条目，分身/多用户条目（如 99910201）
+/// 不会被它更新，必须原样保留。
+const USER0_UID_LIMIT: i32 = 100_000;
+
 #[derive(Deserialize, Serialize, Clone)]
 pub struct PackageConfig {
     pub pkg: String,
@@ -141,9 +146,14 @@ pub fn synchronize_package_uid() -> io::Result<()> {
                     if words.len() >= 2 {
                         let pkg_name = words[0];
                         if let Ok(uid) = words[1].parse::<i32>() {
+                            // packages.list 只包含 user 0；分身/多用户 uid = userId * 100000 + appId
+                            // （如 99910201）。按 pkg 直接 find 会命中第一条，把分身条目改写成
+                            // 主用户 uid，导致分身授权永久丢失。这里只更新 user 0 的条目。
                             if let Some(config) = package_configs
                                 .iter_mut()
-                                .find(|config| config.pkg == pkg_name)
+                                .find(|config| {
+                                    config.pkg == pkg_name && config.uid < USER0_UID_LIMIT
+                                })
                             {
                                 if config.uid != uid {
                                     info!(

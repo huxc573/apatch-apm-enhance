@@ -82,7 +82,7 @@ fun AboutScreen(navigator: DestinationsNavigator) {
             Text(
                 text = stringResource(
                     id = R.string.about_app_version,
-                    if (BuildConfig.VERSION_NAME.contains(BuildConfig.VERSION_CODE.toString())) "${BuildConfig.VERSION_CODE}" else "${BuildConfig.VERSION_CODE} (${BuildConfig.VERSION_NAME})"
+                    BuildConfig.VERSION_NAME.ifBlank { BuildConfig.VERSION_CODE.toString() }
                 ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

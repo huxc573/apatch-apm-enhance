@@ -198,6 +198,7 @@
 
     <string name="apm_webui_open">Open</string>
     <string name="apm_action">Action</string>
+    <string name="apm_apd_synced_reboot">APatch daemon updated. Reboot to apply.</string>
     <string name="enable_web_debugging">Enable WebView debugging</string>
     <string name="enable_web_debugging_summary">Can be used to debug WebUI. Please enable only when needed.</string>
 

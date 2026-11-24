@@ -6,15 +6,17 @@
 | --- | --- |
 | 上游项目 | [bmax121/APatch](https://github.com/bmax121/APatch)（GPL-3.0） |
 | 二开基线 | [`166daa0`](https://github.com/bmax121/APatch/commit/166daa081c5107e1036a3e5caa1380e8a1a863cb) — `Revert apd: uid listen event move to post-data-fs`（2025-11-12） |
-| 基线版本号 | `versionCode 11142` / `versionName 166daa0`（942 个提交，与本机安装的 APatch 完全一致） |
-| 本分支 | `feat/apm-search-pin-sort-compact` |
-| 改动范围 | 仅「系统模块（APModule）」列表界面：搜索、置顶、自定义排序、紧凑布局 |
+| 基线版本号 | 上游 `166daa0` 对应 `versionCode 11142` / `versionName 166daa0`（942 个提交） |
+| 二开版本号规则 | `versionCode = YYMMDDNN` / `versionName = vYY.MM.DD_N`；当前值见 `build.gradle.kts` 或 `./gradlew printVersion`（见 `BUILD.md` §2） |
+| 本分支 | `main` |
+| 改动范围 | 主体为「系统模块（APModule）」列表界面；另含 apd 分身 uid 修复与启动自愈同步 |
 
-**为什么不做 PR**：这四项都是个人使用偏好，和上游模块页的 UI 规划不一致，按上游口味大概率
-不会被合并；因此只在本仓库维护，不改上游行为、不改 native / apd / 模块安装流程。
+**为什么不做 PR**：界面增强是个人使用偏好，和上游模块页的 UI 规划不一致，按上游口味大概率
+不会被合并；apd 分身 uid 修复则是本机环境需要的补丁。因此只在本仓库维护，不提交上游 PR；
+除 apd 的分身 uid 修复外，不改 native 与模块安装卸载流程。
 
-**仓库形态**：本机本地 fork（`git remote` 只有 `upstream` 指向上游，供 diff / rebase 对比，
-没有推送远端）；分支 `feat/apm-search-pin-sort-compact` 在此维护。
+**仓库形态**：本机本地 fork（`origin` = `huxc573/apatch-apm-enhance`，不向上游推送、不提 PR），
+分支 `main` 在此维护。
 
 **引用与许可**：上游代码与本文档遵循 GPL-3.0（见 [LICENSE](LICENSE)），版权归 bmax121 及
 APatch 贡献者所有；本仓库仅在其基础上做上述界面增强。改动点、混淆样本定位与验证记录见

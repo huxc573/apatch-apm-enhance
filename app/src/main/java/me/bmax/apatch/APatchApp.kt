@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.edit
@@ -22,6 +24,7 @@ import me.bmax.apatch.util.verifyAppSignature
 import okhttp3.Cache
 import okhttp3.OkHttpClient
 import java.io.File
+import java.security.MessageDigest
 import java.util.Locale
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
@@ -222,7 +225,15 @@ class APApplication : Application(), Thread.UncaughtExceptionHandler {
                     }
                     Log.d(TAG, "kp state: " + _kpStateLiveData.value)
 
-                    // AndroidPatch version
+                    // 二开：先自愈同步 apd，再读版本。
+                    // 版本号变化后 installApatch() 不会自动执行；启动时对比 APK 内置
+                    // libapd.so 与已安装 apd，不一致就原子替换，让“安装 APK → 打开一次 →
+                    // 重启”即可生效，不需要手点更新，也不需要重新 patch boot。
+                    if (Version.installedApdVUInt() > 0) {
+                        apApp.syncBundledApdIfNeeded()
+                    }
+
+                    // AndroidPatch version（必须在同步之后读，才能拿到新 apd 的版本）
                     val mgv = Version.getManagerVersion().second
                     val installedApdVInt = Version.installedApdVUInt()
                     Log.d(TAG, "manager version: $mgv, installed apd version: $installedApdVInt")
@@ -248,6 +259,61 @@ class APApplication : Application(), Thread.UncaughtExceptionHandler {
                     return@thread
                 }
             }
+    }
+
+    /**
+     * 二开：安装新 APK 后 installApatch() 不会自动执行，APK 内置的 libapd.so
+     * 也就不会落到 /data/adb/apd。启动时比较两者 SHA-256，不一致就用同目录
+     * 临时文件原子替换，覆盖后提示重启。
+     *
+     * 版本号升级与同版本重建都走这条路径，不需要手点“更新”，也不动 boot。
+     */
+    fun syncBundledApdIfNeeded() {
+        val bundled = File(applicationInfo.nativeLibraryDir, "libapd.so")
+        val installed = File(APD_PATH)
+        if (!bundled.exists()) {
+            Log.w(TAG, "bundled apd missing: ${bundled.absolutePath}")
+            return
+        }
+        val same = try {
+            installed.exists() &&
+                bundled.length() == installed.length() &&
+                sha256(bundled) == sha256(installed)
+        } catch (e: Exception) {
+            Log.w(TAG, "compare apd failed", e)
+            false
+        }
+        if (same) return
+
+        val result = rootShellForResult(
+            "cp -f '${bundled.absolutePath}' $APD_PATH.new && " +
+                "chmod 755 $APD_PATH.new && " +
+                "mv -f $APD_PATH.new $APD_PATH && " +
+                "restorecon $APD_PATH"
+        )
+        Log.i(TAG, "sync bundled apd: code=${result.code}")
+        if (result.isSuccess) {
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(
+                    applicationContext,
+                    getString(R.string.apm_apd_synced_reboot),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private fun sha256(file: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(8192)
+            while (true) {
+                val n = input.read(buf)
+                if (n <= 0) break
+                md.update(buf, 0, n)
+            }
+        }
+        return md.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
     override fun onCreate() {

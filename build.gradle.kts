@@ -11,9 +11,18 @@ plugins {
 
 project.ext.set("kernelPatchVersion", "0.12.2")
 
-// 二开 release 签名：口令不进版本库，从本机 signing.properties 读，缺失时交给 apksign 插件回落到 debug 签名
-val localSigningFile = rootProject.file("signing.properties")
-if (localSigningFile.exists()) {
+// 二开 release 签名：口令不进版本库。
+// 优先读 local.properties 的 apatch.signing.properties（本机路径，不入库），
+// 没有再回落仓库根 signing.properties（手机/其他机器构建用）；
+// 两者都没有时交给 apksign 插件回落到 debug 签名。
+val localProperties = java.util.Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+val externalSigningFile = localProperties.getProperty("apatch.signing.properties")
+    ?.let { java.io.File(it) }
+val localSigningFile = externalSigningFile?.takeIf { it.exists() }
+    ?: rootProject.file("signing.properties").takeIf { it.exists() }
+if (localSigningFile != null) {
     java.util.Properties().apply {
         localSigningFile.inputStream().use { load(it) }
     }.forEach { (key, value) -> project.ext.set(key.toString(), value) }
@@ -31,43 +40,32 @@ fun Project.exec(command: String) = providers.exec {
     commandLine(command.split(" "))
 }.standardOutput.asText.get().trim()
 
-/** 二开基线：上游 bmax121/APatch@166daa0，对应 versionCode 11142。 */
-val BASE_COMMIT = "166daa081c5107e1036a3e5caa1380e8a1a863cb"
-
-/** 基线提交的上游提交数，固定值，避免依赖 git 子进程（构建沙箱里会撞 dubious ownership）。 */
-val BASE_COMMIT_COUNT = 942
-
-fun getGitCommitCount(): Int {
-    return 942
-}
-
-fun getGitDescribe(): String {
-    return "166daa0"
-}
-
 fun getbranch(): String {
     return "apm-enhance"
 }
 
 /**
- * 二开说明：版本号必须与本机已安装的系统补丁（11142）保持一致。
+ * 二开版本号规则：日期 + 当天第几个包。
  *
- * 上游原始算法是 `1*10000 + 提交数 + 200`，会随分支上新增的提交一起上涨。
- * 但 APatch 底栏的「系统模块」入口只有当状态为 ANDROIDPATCH_INSTALLED 时才显示，
- * 而该状态要求管理器版本号与内核里的补丁版本号相同（见 APatchApp 的状态判定：
- * `mgv.toInt() != Version.installedApdVInt` 即置为 ANDROIDPATCH_NEED_UPDATE）。
- * 本机系统补丁是 11142，一旦管理器版本号变成 11148 之类，模块入口就会整个消失。
+ * - versionCode = YYMMDD + 两位当天序号，例如 2026-11-24 的第 1 个包 = 26112401。
+ * - versionName = vYY.MM.DD_N，例如 v26.11.24_1。
  *
- * 因此这里写死基线提交（bmax121/APatch@166daa0）的提交数 942，得到 11142。
- * 不使用 git 命令，因为构建沙箱里 gradle 子进程会撞 dubious ownership 而失败。
+ * 这个版本号只代表管理器与 apd 的二开版本，与 KernelPatch 无关。
+ * `apd/build.rs` 的 VERSION_CODE / VERSION_NAME 必须与这里完全一致，
+ * 否则会一直停在 ANDROIDPATCH_NEED_UPDATE。
+ *
+ * 内核补丁版本仍是 kernelPatchVersion（当前 0.12.2）。只要 kpimg 不变，
+ * 内核补丁卡片就保持原样，不会提示重新修补 boot。
+ *
+ * versionCode 必须单调递增，不要回退日期；YYMMDDNN 到 2099 年都低于
+ * Android 的 2,147,483,647 上限。
  */
 fun getVersionCode(): Int {
-    val major = 1
-    return major * 10000 + 942 + 200
+    return 26112401
 }
 
 fun getVersionName(): String {
-    return getGitDescribe()
+    return "v26.11.24_1"
 }
 
 tasks.register("printVersion") {

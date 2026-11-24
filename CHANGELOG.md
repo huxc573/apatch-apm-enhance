@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## [二开 2.4] - 2026-11-24
+
+### 修复 apd 覆盖分身 uid，导致分身 root 丢失
+
+- 现象：Flyme 平行空间中的分身应用（uid 形如 `99910201`）在开机/包变化后丢失 root；
+  主应用（uid `10201`）不受影响。Flyme 设备复现，esp 因配置行序相反未触发。
+- 根因：`apd/src/package.rs::synchronize_package_uid()` 按包名 `find` 只取第一条配置，
+  再用 `/data/system/packages.list`（仅 user 0）的 uid 覆盖它。分身条目排在前面时，
+  会被改写成主用户 uid，并从 `package_config` 中永久消失。
+- 修复：只更新 `uid < 100000` 的 user 0 条目；`userId * 100000 + appId` 形态的
+  分身/多用户条目原样保留。
+- 版本：二开启用自有日期版本号 `26112401` / `v26.11.24_1`，根 `build.gradle.kts`
+  与 `apd/build.rs` 必须同时修改且保持一致。规则：`versionCode = YYMMDDNN`，
+  `versionName = vYY.MM.DD_N`，例如 2026-11-24 第 1 个包 = `26112401` / `v26.11.24_1`。
+  `kernelPatchVersion` / `kpimg` 仍是 `0.12.2`，与这组版本号无关；不动 `kpimg`
+  就不会提示重新修补 boot。
+- 界面：主页 APatch 版本与关于页改为显示 `versionName`（`v26.11.24_1`），不再显示内部
+  versionCode；KernelPatch 卡片仍显示 `0.12.2`，不受这组版本号影响。
+- 部署：启动时先比较 APK 内置 `libapd.so` 与已安装 `/data/adb/apd` 的 SHA-256，
+  不一致就用同目录临时文件原子替换，然后再读 apd 版本。因此版本号变化也会直接落到
+  `ANDROIDPATCH_INSTALLED`，不会停在“新版本可升级”。流程：安装 APK → 打开一次
+  （自动同步并 toast 提示）→ 重启，不需要手动 adb 替换。
+- 验证（测试机，无线 adb）：从 11142 覆盖安装后启动，logcat 出现
+  `sync bundled apd: code=0`；`/data/adb/apd -V` 为 `26112401`，SHA-256
+  `0c28a5a5d870ca6205a64cd05b5316b0c7e08fe5804ec1e688efad9cea38cab9` 与 APK
+  内 `lib/arm64-v8a/libapd.so` 一致；内核补丁状态仍为 `KERNELPATCH_INSTALLED`。
+  界面确认：主页显示 `0.12.2 (v26.11.24_1) - Full`、APatch 版本 `v26.11.24_1`，
+  没有“新版本可升级”，底栏「系统模块」入口正常。
+- 已丢失的分身条目不会自动补回（新 apd 只阻止再次覆盖）。本机
+  `package_config.bak-cc` 里没有 `99910201` 条目，已按实际分身 uid 手工补回；
+  旧配置备份为 `package_config.bak-before-26112401`。重启后 `99910201` 与 `10201`
+  两条并存，新 apd 未再覆盖。
+
 ## [二开 2.3] - 2026-10-30
 
 ### 交互重做：编辑模式下的排序与置顶
